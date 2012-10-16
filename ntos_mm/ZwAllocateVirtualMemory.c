@@ -12,6 +12,9 @@
 #define StartSeh()                  Status = STATUS_SUCCESS; _SEH2_TRY {
 #define EndSeh(ExpectedStatus)      } _SEH2_EXCEPT(EXCEPTION_EXECUTE_HANDLER) { Status = _SEH2_GetExceptionCode(); } _SEH2_END; ok_eq_hex(Status, ExpectedStatus)
 
+QUOTA_LIMITS limits;
+
+
 const char TestString[] = "TheLongBrownFoxJumpedTheWhiteRabbitTheLongBrownFoxJumpedTheWhiteRabbitTheLongBrownFoxJumpedTheWhiteRabbitTheLongBrownFoxJumpedTheWhiteRabbitTheLongBrownFoxJumpedTheWhiteRabbitTheLongBrownFoxJumpedTheW";
 
 static BOOLEAN CheckBuffer( PVOID Buffer, SIZE_T Size, UCHAR Value)
@@ -30,11 +33,39 @@ static BOOLEAN CheckBuffer( PVOID Buffer, SIZE_T Size, UCHAR Value)
 }
 
 
-static VOID CheckBufferReadWrite(PVOID Source, const PVOID Destination, SIZE_T Length) {
+static NTSTATUS CheckBufferReadWrite(PVOID Source, const PVOID Destination, SIZE_T Length) {
 	//do a little bit of writing/reading to memory
-	RtlCopyMemory(Source, Destination, Length);
-	ok_eq_int(RtlCompareMemory(Source, Destination, Length), Length);
+	NTSTATUS Status;
+	SIZE_T match = 0;
+	
+	_SEH2_TRY {
+		RtlCopyMemory(Source, Destination, Length);
+		match = RtlCompareMemory(Source, Destination, Length);
+		ok_eq_int(match, Length);
+	} _SEH2_EXCEPT(EXCEPTION_EXECUTE_HANDLER) {
+		Status = _SEH2_GetExceptionCode();
+    } _SEH2_END;
+	
+	return Status;
+	
 }
+
+static VOID GetProcLimits() {
+	NTSTATUS Status;
+	ULONG ReturnLength;
+
+	Status = ZwQueryInformationProcess(NtCurrentProcess(), ProcessQuotaLimits, &limits, sizeof(limits), &ReturnLength);
+	if(NT_SUCCESS(Status)) {
+		trace("PagedPoolLimit        = %x\n", limits.PagedPoolLimit);
+		trace("NonPagedPoolLimit     = %x\n", limits.NonPagedPoolLimit);
+		trace("MinimumWorkingSetSize = %x\n", limits.MinimumWorkingSetSize);
+		trace("MaximumWorkingSetSize = %x\n", limits.MaximumWorkingSetSize);
+		trace("PagefileLimit         = %x\n", limits.PagefileLimit);
+	} else {
+		trace("FAILURE STATUS = 0x%08lx\n", Status);
+	}
+}
+
 static NTSTATUS SimpleAllocation() {
 
 	NTSTATUS Status;
@@ -106,21 +137,25 @@ static NTSTATUS InvalidAllocations() {
 	Status = ZwAllocateVirtualMemory(NtCurrentProcess(), &base, 0, &RegionSize, MEM_RESERVE, PAGE_READWRITE);
 	ok_eq_hex(Status, STATUS_CONFLICTING_ADDRESSES);
 
-	/*
+	
 	//invalid start address
 	RegionSize = 200;
 	base = (PVOID)0xD903; //should fail because i'm allocating in the first 64k
 	Status = ZwAllocateVirtualMemory(NtCurrentProcess(), &base, 0, &RegionSize, (MEM_COMMIT | MEM_RESERVE), PAGE_READWRITE);
 	ok_eq_hex(Status, STATUS_CONFLICTING_ADDRESSES);
 	trace("Allocated address is %p\n", base);
-	CheckBufferReadWrite(base, (PVOID)TestString, 200);
-	*/
-
-	base = (PVOID)((char *)MmSystemRangeStart + 200);
-	Status = ZwAllocateVirtualMemory(NtCurrentProcess(), &base, 0, &RegionSize, (MEM_COMMIT | MEM_RESERVE), PAGE_READWRITE);
-	//ok_eq_hex(Status, 0x00000f0); //ERROR_VC_DISCONNECTED?
+	Status = CheckBufferReadWrite(base, (PVOID)TestString, 200);
 	
-
+	//invalid upper address
+	base = (PVOID)((char *)MmSystemRangeStart + 200); //this is invalid 
+	Status = ZwAllocateVirtualMemory(NtCurrentProcess(), &base, 0, &RegionSize, (MEM_COMMIT | MEM_RESERVE), PAGE_READWRITE);
+	ok_eq_hex(Status, STATUS_INVALID_PARAMETER_2);
+	
+	//allocate more than the architecturally allowed 2 gigabytes for a 32bit
+	RegionSize = limits.MaximumWorkingSetSize + 100;
+	base = (PVOID) NULL;
+	Status = ZwAllocateVirtualMemory(NtCurrentProcess(), &base, 0, &RegionSize, (MEM_COMMIT | MEM_RESERVE), PAGE_READWRITE);
+	ok_eq_hex(Status, STATUS_COMMITMENT_LIMIT);
 	return Status;
 }
 
@@ -128,6 +163,8 @@ static NTSTATUS InvalidAllocations() {
 START_TEST(ZwAllocateVirtualMemory) {
 	NTSTATUS Status;
 		
+	GetProcLimits(); //populate global quota
+
 	StartSeh();
 	SimpleAllocation();
 	EndSeh(STATUS_SUCCESS);
@@ -139,7 +176,9 @@ START_TEST(ZwAllocateVirtualMemory) {
 	StartSeh();
 	InvalidAllocations();
 	EndSeh(STATUS_SUCCESS);
+
 	
+
 }
 
 
