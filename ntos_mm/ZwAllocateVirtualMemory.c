@@ -1,9 +1,9 @@
 /*
- * PROJECT:         ReactOS kernel-mode tests
- * LICENSE:         GPLv2+ - See COPYING in the top level directory
- * PURPOSE:         Kernel-Mode Test Suite Runtime library bit map test
- * PROGRAMMER:      Nikolay Borisov <nib9@aber.ac.uk>
- */
+* PROJECT:         ReactOS kernel-mode tests
+* LICENSE:         GPLv2+ - See COPYING in the top level directory
+* PURPOSE:         Kernel-Mode Test Suite Runtime library bit map test
+* PROGRAMMER:      Nikolay Borisov <nib9@aber.ac.uk>
+*/
 
 
 #include <kmt_test.h>
@@ -37,17 +37,17 @@ static NTSTATUS CheckBufferReadWrite(PVOID Source, const PVOID Destination, SIZE
 	//do a little bit of writing/reading to memory
 	NTSTATUS Status;
 	SIZE_T match = 0;
-	
+
 	_SEH2_TRY {
 		RtlCopyMemory(Source, Destination, Length);
 		match = RtlCompareMemory(Source, Destination, Length);
 		ok_eq_int(match, Length);
 	} _SEH2_EXCEPT(EXCEPTION_EXECUTE_HANDLER) {
 		Status = _SEH2_GetExceptionCode();
-    } _SEH2_END;
-	
+	} _SEH2_END;
+
 	return Status;
-	
+
 }
 
 static VOID GetProcLimits() {
@@ -78,7 +78,7 @@ static NTSTATUS SimpleAllocation() {
 	ok_eq_size(RegionSize, 4096); //this should have resulted in a single-page allocation
 
 	//check for the zero-filled pages 
-	 ok_bool_true(CheckBuffer(base, RegionSize, 0), "The buffer is not zero-filed");
+	ok_bool_true(CheckBuffer(base, RegionSize, 0), "The buffer is not zero-filed");
 	CheckBufferReadWrite(base, (PVOID)TestString, 200);
 
 
@@ -137,7 +137,7 @@ static NTSTATUS InvalidAllocations() {
 	Status = ZwAllocateVirtualMemory(NtCurrentProcess(), &base, 0, &RegionSize, MEM_RESERVE, PAGE_READWRITE);
 	ok_eq_hex(Status, STATUS_CONFLICTING_ADDRESSES);
 
-	
+
 	//invalid start address
 	RegionSize = 200;
 	base = (PVOID)0xD903; //should fail because i'm allocating in the first 64k
@@ -145,12 +145,12 @@ static NTSTATUS InvalidAllocations() {
 	ok_eq_hex(Status, STATUS_CONFLICTING_ADDRESSES);
 	trace("Allocated address is %p\n", base);
 	Status = CheckBufferReadWrite(base, (PVOID)TestString, 200);
-	
+
 	//invalid upper address
 	base = (PVOID)((char *)MmSystemRangeStart + 200); //this is invalid 
 	Status = ZwAllocateVirtualMemory(NtCurrentProcess(), &base, 0, &RegionSize, (MEM_COMMIT | MEM_RESERVE), PAGE_READWRITE);
 	ok_eq_hex(Status, STATUS_INVALID_PARAMETER_2);
-	
+
 	//allocate more than the architecturally allowed 2 gigabytes for a 32bit
 	RegionSize = limits.MaximumWorkingSetSize + 100;
 	base = (PVOID) NULL;
@@ -162,7 +162,7 @@ static NTSTATUS InvalidAllocations() {
 
 START_TEST(ZwAllocateVirtualMemory) {
 	NTSTATUS Status;
-		
+
 	GetProcLimits(); //populate global quota
 
 	StartSeh();
@@ -177,7 +177,7 @@ START_TEST(ZwAllocateVirtualMemory) {
 	InvalidAllocations();
 	EndSeh(STATUS_SUCCESS);
 
-	
+
 
 }
 
