@@ -14,7 +14,6 @@
 
 const char TestString[] = "TheLongBrownFoxJumpedTheWhiteRabbitTheLongBrownFoxJumpedTheWhiteRabbitTheLongBrownFoxJumpedTheWhiteRabbitTheLongBrownFoxJumpedTheWhiteRabbitTheLongBrownFoxJumpedTheWhiteRabbitTheLongBrownFoxJumpedTheW";
 
-
 static BOOLEAN CheckBuffer( PVOID Buffer, SIZE_T Size, UCHAR Value)
 {
 	PUCHAR Array = Buffer;
@@ -56,7 +55,7 @@ static NTSTATUS SimpleAllocation() {
 	RegionSize = 0;
 	Status = ZwFreeVirtualMemory(NtCurrentProcess(), &base, &RegionSize, MEM_RELEASE);
 	ok_eq_hex(Status, STATUS_SUCCESS);
-	ok_eq_size(RegionSize, 4096);
+	ok_eq_size(RegionSize, PAGE_SIZE);
 
 	//test reserve and then commit
 	Status = ZwAllocateVirtualMemory(NtCurrentProcess(), &base, 0, &RegionSize, MEM_RESERVE, PAGE_READWRITE);
@@ -72,14 +71,14 @@ static NTSTATUS SimpleAllocation() {
 static NTSTATUS CustomBaseAllocation() {
 
 	NTSTATUS Status;
-	PVOID base = (PVOID)0x45EC6324; //this 
+	PVOID base = (PVOID)0x45EC6324; //dummy address  
 	SIZE_T RegionSize = 200;
 
 	// allocate the memory
 	Status = ZwAllocateVirtualMemory(NtCurrentProcess(), (PVOID *)&base, 0, &RegionSize, (MEM_COMMIT | MEM_RESERVE), PAGE_READWRITE);
 	ok_eq_hex(Status, STATUS_SUCCESS);
 	ok_eq_size(RegionSize, 28672);  
-	ok_eq_ulong(base, (PVOID)0x45EC0000);  //it is rounded down to the nearest allocation granularity (64k) address
+	ok_eq_ulong(base, (PVOID)(((ULONG)base / MM_ALLOCATION_GRANULARITY ) * MM_ALLOCATION_GRANULARITY));  //it is rounded down to the nearest allocation granularity (64k) address
 
 	// try freeing
 	RegionSize = 0;
@@ -128,7 +127,7 @@ static NTSTATUS InvalidAllocations() {
 
 START_TEST(ZwAllocateVirtualMemory) {
 	NTSTATUS Status;
-
+		
 	StartSeh();
 	SimpleAllocation();
 	EndSeh(STATUS_SUCCESS);
@@ -140,6 +139,7 @@ START_TEST(ZwAllocateVirtualMemory) {
 	StartSeh();
 	InvalidAllocations();
 	EndSeh(STATUS_SUCCESS);
+	
 }
 
 
