@@ -14,11 +14,24 @@
 
 #define _2gb 0x80000000
 #define _1gb 0x40000000
+#define ROUND_DOWN(n,align) (((ULONG)n) & ~((align) - 1l))
 
 QUOTA_LIMITS limits;
 
-
 const char TestString[] = "TheLongBrownFoxJumpedTheWhiteRabbitTheLongBrownFoxJumpedTheWhiteRabbitTheLongBrownFoxJumpedTheWhiteRabbitTheLongBrownFoxJumpedTheWhiteRabbitTheLongBrownFoxJumpedTheWhiteRabbitTheLongBrownFoxJumpedTheW";
+
+static ULONG_PTR GetRandomAddress() {
+	ULONG_PTR address;
+	ULONG seed;
+	do 
+	{
+		LARGE_INTEGER state = KeQueryPerformanceCounter(NULL);
+		seed = state.LowPart ^ state.HighPart;
+		address = RtlRandomEx(&seed);
+	} while (address >= (ULONG_PTR)MmSystemRangeStart);
+
+	return address;
+}
 
 static BOOLEAN CheckBuffer( PVOID Buffer, SIZE_T Size, UCHAR Value)
 {
@@ -57,15 +70,6 @@ static VOID GetProcLimits() {
 	ULONG ReturnLength;
 
 	Status = ZwQueryInformationProcess(NtCurrentProcess(), ProcessQuotaLimits, &limits, sizeof(limits), &ReturnLength);
-	if(NT_SUCCESS(Status)) {
-		trace("PagedPoolLimit        = %x\n", limits.PagedPoolLimit);
-		trace("NonPagedPoolLimit     = %x\n", limits.NonPagedPoolLimit);
-		trace("MinimumWorkingSetSize = %x\n", limits.MinimumWorkingSetSize);
-		trace("MaximumWorkingSetSize = %x\n", limits.MaximumWorkingSetSize);
-		trace("PagefileLimit         = %x\n", limits.PagefileLimit);
-	} else {
-		trace("FAILURE STATUS = 0x%08lx\n", Status);
-	}
 }
 
 static NTSTATUS SimpleAllocation() {
@@ -115,21 +119,25 @@ static NTSTATUS SimpleAllocation() {
 
 static NTSTATUS CustomBaseAllocation() {
 
-	NTSTATUS Status;
-	PVOID base = (PVOID)0x45EC6324; //dummy address  
+	NTSTATUS Status;  
 	SIZE_T RegionSize = 200;
+	ULONG_PTR base =  GetRandomAddress();
+	ULONG_PTR ActualStartingAddress = ROUND_DOWN((ULONG_PTR)base, MM_ALLOCATION_GRANULARITY); //it is rounded down to the nearest allocation granularity (64k) address
+	ULONG_PTR EndingAddress = ((ULONG_PTR)base + RegionSize - 1) | (PAGE_SIZE - 1);
+	ULONG_PTR ActualSize = BYTES_TO_PAGES(EndingAddress - ActualStartingAddress) * PAGE_SIZE; //calculates the actual size based on the required pages
+	
 
 	// allocate the memory
 	Status = ZwAllocateVirtualMemory(NtCurrentProcess(), (PVOID *)&base, 0, &RegionSize, (MEM_COMMIT | MEM_RESERVE), PAGE_READWRITE);
 	ok_eq_hex(Status, STATUS_SUCCESS);
-	ok_eq_size(RegionSize, 28672);  
-	ok_eq_ulong(base, (PVOID)(((ULONG)base / MM_ALLOCATION_GRANULARITY ) * MM_ALLOCATION_GRANULARITY));  //it is rounded down to the nearest allocation granularity (64k) address
+	ok_eq_size(RegionSize, ActualSize);  
+	ok_eq_ulong(base, ActualStartingAddress);  
 
 	// try freeing
 	RegionSize = 0;
 	Status = ZwFreeVirtualMemory(NtCurrentProcess(), (PVOID *)&base, &RegionSize, MEM_RELEASE);
 	ok_eq_hex(Status, STATUS_SUCCESS);
-	ok_eq_ulong(RegionSize, 28672);
+	ok_eq_ulong(RegionSize, ActualSize);
 
 	return Status;
 }
@@ -152,34 +160,12 @@ static NTSTATUS InvalidAllocations() {
 	ok_eq_hex(Status, STATUS_CONFLICTING_ADDRESSES);
 
 
-	//invalid start address
-	RegionSize = 200;
-	base = (PVOID)0xD903; //should fail because i'm allocating in the first 64k
-	Status = ZwAllocateVirtualMemory(NtCurrentProcess(), &base, 0, &RegionSize, (MEM_COMMIT | MEM_RESERVE), PAGE_READWRITE);
-	ok_eq_hex(Status, STATUS_CONFLICTING_ADDRESSES);
-	trace("Allocated address is %p\n", base);
-	Status = CheckBufferReadWrite(base, (PVOID)TestString, 200);
-
 	//invalid upper address
 	base = (PVOID)((char *)MmSystemRangeStart + 200); //this is invalid 
 	Status = ZwAllocateVirtualMemory(NtCurrentProcess(), &base, 0, &RegionSize, (MEM_COMMIT | MEM_RESERVE), PAGE_READWRITE);
 	ok_eq_hex(Status, STATUS_INVALID_PARAMETER_2);
 
-	//invalid reservation of 2 gigs
-/*
-	RegionSize = MM_HIGHEST_VAD_ADDRESS + 1; //this should be an invalid
-	base = (PVOID) NULL;
-	Status = ZwAllocateVirtualMemory(NtCurrentProcess(), &base, 0, &RegionSize, MEM_RESERVE, PAGE_READWRITE);
-	ok_eq_hex(Status, STATUS_INVALID_PARAMETER_4);
-	//should be able to free a non-reserved memory
-	RegionSize = 0;
-	Status = ZwFreeVirtualMemory(NtCurrentProcess(), &base, &RegionSize, MEM_RELEASE);
-	ok_eq_hex(Status, STATUS_UNABLE_TO_FREE_VM);
-
-	*/
-
 	return Status;
-
 }
 
 
