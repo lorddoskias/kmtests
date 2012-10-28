@@ -100,22 +100,8 @@ static NTSTATUS SimpleAllocation() {
 	ok_eq_hex(Status, STATUS_SUCCESS);
 	CheckBufferReadWrite(base, (PVOID)TestString, 200);
 
-
-	//should be able to reserve less than 2 gigs
-	/*RegionSize = _1gb; //this should be a valid upper bound
-	base = (PVOID) NULL;
-	Status = ZwAllocateVirtualMemory(NtCurrentProcess(), &base, 0, &RegionSize, MEM_RESERVE, PAGE_READWRITE);
-	ok_eq_hex(Status, STATUS_SUCCESS);
-	
-	RegionSize = 0;
-	Status = ZwFreeVirtualMemory(NtCurrentProcess(), &base, &RegionSize, MEM_RELEASE);
-	ok_eq_hex(Status, STATUS_SUCCESS);
-	
-	*/
-
 	return Status;
 }
-
 
 static NTSTATUS CustomBaseAllocation() {
 
@@ -142,7 +128,6 @@ static NTSTATUS CustomBaseAllocation() {
 	return Status;
 }
 
-
 static NTSTATUS InvalidAllocations() {
 	NTSTATUS Status;
 	PVOID base = (PVOID) NULL;
@@ -168,25 +153,61 @@ static NTSTATUS InvalidAllocations() {
 	return Status;
 }
 
+static NTSTATUS StressTesting(ULONG AllocationType) {
+
+	NTSTATUS Status = STATUS_SUCCESS; 
+	NTSTATUS returnStatus = STATUS_SUCCESS;
+	ULONG_PTR bases[1024]; //assume we are going to allocate only 5 gigs. 
+	ULONG index = 0;	
+	PVOID base = NULL;
+	SIZE_T RegionSize = 5 * 1024 * 1024; // 5 megabytes; 
+
+	for(index = 0; NT_SUCCESS(Status); index++) {
+
+		Status = ZwAllocateVirtualMemory(NtCurrentProcess(), &base, 0, &RegionSize, AllocationType, PAGE_READWRITE);
+
+		if(index >= 1024) {
+			trace("[ZwAlloc]Reservation limit exceeded, won't free all reservations. Reservations written: %d\n", index);
+		} else {
+			bases[index] = (ULONG_PTR)base;
+			base = NULL;
+		}
+	}
+
+	trace("[ZwAlloc] Finished reserving. Error code %x. Chunks allocated: %d\n", Status, index );
+	
+	returnStatus = Status;
+
+	//free the allocated memory so that we can continue with the tests
+	Status = STATUS_SUCCESS;
+	index = 0;
+	while(NT_SUCCESS(Status)) {
+		RegionSize = 0;
+		Status = ZwFreeVirtualMemory(NtCurrentProcess(), (PVOID)&bases[index++], &RegionSize, MEM_RELEASE);
+
+	}
+
+
+	return returnStatus;
+}
 
 START_TEST(ZwAllocateVirtualMemory) {
 	NTSTATUS Status;
 
 	GetProcLimits(); //populate global quota
-
-	StartSeh();
+	
 	SimpleAllocation();
-	EndSeh(STATUS_SUCCESS);
 
-	StartSeh();
 	CustomBaseAllocation();
-	EndSeh(STATUS_SUCCESS);
 
-	StartSeh();
 	InvalidAllocations();
-	EndSeh(STATUS_SUCCESS);
 
+	Status = StressTesting(MEM_RESERVE);
+	ok_eq_hex(Status, STATUS_NO_MEMORY);
 
+	Status = STATUS_SUCCESS;
+	Status = StressTesting(MEM_COMMIT);
+	ok_eq_hex(Status, STATUS_COMMITMENT_LIMIT);
 
 }
 
