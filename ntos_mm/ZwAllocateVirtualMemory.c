@@ -150,6 +150,16 @@ static NTSTATUS InvalidAllocations() {
 	Status = ZwAllocateVirtualMemory(NtCurrentProcess(), &base, 0, &RegionSize, (MEM_COMMIT | MEM_RESERVE), PAGE_READWRITE);
 	ok_eq_hex(Status, STATUS_INVALID_PARAMETER_2);
 
+	//missing MEM_RESERVE
+	base = NULL;
+	Status = ZwAllocateVirtualMemory(NtCurrentProcess(), &base, 0, &RegionSize, (MEM_PHYSICAL), PAGE_READONLY); 
+	ok_eq_hex(Status, STATUS_INVALID_PARAMETER_5);
+
+	base = NULL;
+	Status = ZwAllocateVirtualMemory(NtCurrentProcess(), &base, 0, &RegionSize, (MEM_PHYSICAL | MEM_RESERVE ), PAGE_EXECUTE); 
+	ok_eq_hex(Status, STATUS_INVALID_PARAMETER_6);
+
+
 	return Status;
 }
 
