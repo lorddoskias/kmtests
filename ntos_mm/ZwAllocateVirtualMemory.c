@@ -11,23 +11,23 @@
 #define _2gb 0x80000000
 #define _1gb 0x40000000
 #define ROUND_DOWN(n,align) (((ULONG_PTR)n) & ~((align) - 1l))
+#define DEFAULT_ALLOC_SIZE 200
+#define NO_CHECK 1
+ 
+#define ALLOC_MEMORY_WITH_FREE(ProcessHandle, BaseAddress, ZeroBits, RegionSize, AllocationType, Protect, RetStatus, FreeStatus)   \
+    do {                                                                                                               \
+    Status = ZwAllocateVirtualMemory(ProcessHandle, &BaseAddress, ZeroBits, &RegionSize, AllocationType, Protect);     \
+    ok_eq_hex(Status, RetStatus);                                                                                      \
+    RegionSize = 0;                                                                                                    \
+    Status = ZwFreeVirtualMemory(ProcessHandle, &BaseAddress, &RegionSize, MEM_RELEASE);                               \
+    if(FreeStatus != NO_CHECK) ok_eq_hex(Status, (NTSTATUS)FreeStatus);                                                \
+    BaseAddress = NULL;                                                                                                \
+    RegionSize = DEFAULT_ALLOC_SIZE;                                                                                   \
+    } while(0)                                                                                                         \
 
 const char TestString[] = "TheLongBrownFoxJumpedTheWhiteRabbitTheLongBrownFoxJumpedTheWhiteRabbitTheLongBrownFoxJumpedTheWhiteRabbitTheLongBrownFoxJumpedTheWhiteRabbitTheLongBrownFoxJumpedTheWhiteRabbitTheLongBrownFoxJumpedTheW";
 
-static ULONG_PTR GetRandomAddress(VOID) 
-{
-    ULONG_PTR Address;
-    ULONG Seed;
-    do 
-    {
-        LARGE_INTEGER State = KeQueryPerformanceCounter(NULL);
-        Seed = State.LowPart ^ State.HighPart;
-        Address = RtlRandomEx(&Seed);
-    } while (Address >= (ULONG_PTR)MmSystemRangeStart);
-
-    return Address;
-}
-
+/*
 static BOOLEAN CheckBuffer( PVOID Buffer, SIZE_T Size, UCHAR Value)
 {
     PUCHAR Array = Buffer;
@@ -57,8 +57,68 @@ static VOID CheckBufferReadWrite(PVOID Source, const PVOID Destination, SIZE_T L
     ok_eq_int(Match, Length);
    
 }
+*/
 
 
+static void SimpleErrorChecks(VOID) {
+
+    NTSTATUS Status; 
+    PVOID Base = NULL;
+    SIZE_T RegionSize = DEFAULT_ALLOC_SIZE;
+
+    //HANDLE TESTS
+    ALLOC_MEMORY_WITH_FREE(NtCurrentProcess(), Base, 0, RegionSize, (MEM_COMMIT | MEM_RESERVE), PAGE_READWRITE, STATUS_SUCCESS, STATUS_SUCCESS);
+    ALLOC_MEMORY_WITH_FREE(NULL, Base, 0, RegionSize, (MEM_COMMIT | MEM_RESERVE), PAGE_READWRITE, STATUS_INVALID_HANDLE, STATUS_INVALID_HANDLE);
+    ALLOC_MEMORY_WITH_FREE(INVALID_HANDLE_VALUE, Base, 0, RegionSize, (MEM_COMMIT | MEM_RESERVE), PAGE_READWRITE, STATUS_SUCCESS, STATUS_SUCCESS);
+
+    //BASE ADDRESS TESTS
+    Base = (PVOID)0x00567A20;
+    ALLOC_MEMORY_WITH_FREE(NtCurrentProcess(), Base, 0, RegionSize, (MEM_COMMIT | MEM_RESERVE), PAGE_READWRITE, STATUS_CONFLICTING_ADDRESSES, STATUS_FREE_VM_NOT_AT_BASE);
+
+    Base = (PVOID) 0x60000000; 
+    ALLOC_MEMORY_WITH_FREE(NtCurrentProcess(), Base, 0, RegionSize, (MEM_COMMIT | MEM_RESERVE), PAGE_READWRITE, STATUS_SUCCESS, STATUS_SUCCESS);
+
+    Base = (PVOID)((char *)MmSystemRangeStart + 200);
+    ALLOC_MEMORY_WITH_FREE(NtCurrentProcess(), Base, 0, RegionSize, (MEM_COMMIT | MEM_RESERVE), PAGE_READWRITE, STATUS_INVALID_PARAMETER_2, STATUS_INVALID_PARAMETER_2);
+
+    //ZERO BITS TESTS
+    ALLOC_MEMORY_WITH_FREE(NtCurrentProcess(), Base, 32, RegionSize, (MEM_COMMIT | MEM_RESERVE), PAGE_READWRITE, STATUS_INVALID_PARAMETER_3, STATUS_MEMORY_NOT_ALLOCATED);
+    ALLOC_MEMORY_WITH_FREE(NtCurrentProcess(), Base, 10, RegionSize, (MEM_COMMIT | MEM_RESERVE), PAGE_READWRITE, STATUS_NO_MEMORY, STATUS_MEMORY_NOT_ALLOCATED);
+    ALLOC_MEMORY_WITH_FREE(NtCurrentProcess(), Base, -1, RegionSize, (MEM_COMMIT | MEM_RESERVE), PAGE_READWRITE, STATUS_INVALID_PARAMETER_3, STATUS_MEMORY_NOT_ALLOCATED);
+    ALLOC_MEMORY_WITH_FREE(NtCurrentProcess(), Base, 3, RegionSize, (MEM_COMMIT | MEM_RESERVE), PAGE_READWRITE, STATUS_SUCCESS, STATUS_SUCCESS);
+
+    //REGION SIZE TESTS
+    ALLOC_MEMORY_WITH_FREE(NtCurrentProcess(), Base, 0, RegionSize, (MEM_COMMIT | MEM_RESERVE), PAGE_READWRITE, STATUS_SUCCESS, STATUS_SUCCESS);
+    RegionSize = -1;
+    ALLOC_MEMORY_WITH_FREE(NtCurrentProcess(), Base, 0, RegionSize, (MEM_COMMIT | MEM_RESERVE), PAGE_READWRITE, STATUS_INVALID_PARAMETER_4, STATUS_MEMORY_NOT_ALLOCATED);
+    RegionSize = 0;
+    ALLOC_MEMORY_WITH_FREE(NtCurrentProcess(), Base, 0, RegionSize, (MEM_COMMIT | MEM_RESERVE), PAGE_READWRITE, STATUS_INVALID_PARAMETER_4, STATUS_MEMORY_NOT_ALLOCATED);
+    RegionSize = _2gb * _2gb; // this is 4 gb and is invalid
+    ALLOC_MEMORY_WITH_FREE(NtCurrentProcess(), Base, 0, RegionSize, (MEM_COMMIT | MEM_RESERVE), PAGE_READWRITE, STATUS_INVALID_PARAMETER_4, STATUS_MEMORY_NOT_ALLOCATED);
+
+    //Allocation type tests
+    ALLOC_MEMORY_WITH_FREE(NtCurrentProcess(), Base, 0, RegionSize, MEM_PHYSICAL, PAGE_READWRITE, STATUS_INVALID_PARAMETER_5, STATUS_MEMORY_NOT_ALLOCATED);
+    ALLOC_MEMORY_WITH_FREE(NtCurrentProcess(), Base, 0, RegionSize, (MEM_COMMIT | MEM_RESET), PAGE_READWRITE, STATUS_INVALID_PARAMETER_5, STATUS_MEMORY_NOT_ALLOCATED);
+    ALLOC_MEMORY_WITH_FREE(NtCurrentProcess(), Base, 0, RegionSize, 0, PAGE_READWRITE, STATUS_INVALID_PARAMETER_5, STATUS_MEMORY_NOT_ALLOCATED);
+    ALLOC_MEMORY_WITH_FREE(NtCurrentProcess(), Base, 0, RegionSize, MEM_TOP_DOWN, PAGE_READWRITE, STATUS_INVALID_PARAMETER_5, STATUS_MEMORY_NOT_ALLOCATED);
+    ALLOC_MEMORY_WITH_FREE(NtCurrentProcess(), Base, 0, RegionSize, (MEM_TOP_DOWN | MEM_RESET), PAGE_READWRITE, STATUS_INVALID_PARAMETER_5, STATUS_MEMORY_NOT_ALLOCATED);
+    ALLOC_MEMORY_WITH_FREE(NtCurrentProcess(), Base, 0, RegionSize, (MEM_TOP_DOWN | MEM_COMMIT), PAGE_READWRITE, STATUS_SUCCESS, STATUS_SUCCESS);
+    ALLOC_MEMORY_WITH_FREE(NtCurrentProcess(), Base, 0, RegionSize, (MEM_PHYSICAL | MEM_RESERVE), PAGE_READWRITE, STATUS_SUCCESS, STATUS_SUCCESS);
+    ALLOC_MEMORY_WITH_FREE(NtCurrentProcess(), Base, 0, RegionSize, (MEM_PHYSICAL | MEM_COMMIT), PAGE_READWRITE, STATUS_INVALID_PARAMETER_5, STATUS_MEMORY_NOT_ALLOCATED);
+    ALLOC_MEMORY_WITH_FREE(NtCurrentProcess(), Base, 0, RegionSize, (MEM_RESET | MEM_COMMIT | MEM_RESERVE), PAGE_READWRITE, STATUS_INVALID_PARAMETER_5, STATUS_MEMORY_NOT_ALLOCATED);
+    ALLOC_MEMORY_WITH_FREE(NtCurrentProcess(), Base, 0, RegionSize, -1, PAGE_READWRITE, STATUS_INVALID_PARAMETER_5, STATUS_MEMORY_NOT_ALLOCATED);
+    ALLOC_MEMORY_WITH_FREE(NtCurrentProcess(), Base, 0, RegionSize,  MEM_COMMIT, PAGE_READWRITE, STATUS_SUCCESS, STATUS_SUCCESS);
+    ALLOC_MEMORY_WITH_FREE(NtCurrentProcess(), Base, 0, RegionSize,  MEM_RESERVE, PAGE_READWRITE, STATUS_SUCCESS, STATUS_SUCCESS);
+    
+    //Memory protection tests
+    ALLOC_MEMORY_WITH_FREE(NtCurrentProcess(), Base, 0, RegionSize, (MEM_COMMIT | MEM_RESERVE), 0, STATUS_INVALID_PAGE_PROTECTION, STATUS_MEMORY_NOT_ALLOCATED);
+    ALLOC_MEMORY_WITH_FREE(NtCurrentProcess(), Base, 0, RegionSize, (MEM_COMMIT | MEM_RESERVE), -1, STATUS_INVALID_PAGE_PROTECTION, STATUS_MEMORY_NOT_ALLOCATED);
+    ALLOC_MEMORY_WITH_FREE(NtCurrentProcess(), Base, 0, RegionSize, (MEM_COMMIT | MEM_RESERVE), (PAGE_NOACCESS | PAGE_GUARD), STATUS_INVALID_PAGE_PROTECTION, STATUS_MEMORY_NOT_ALLOCATED);
+    ALLOC_MEMORY_WITH_FREE(NtCurrentProcess(), Base, 0, RegionSize, (MEM_COMMIT | MEM_RESERVE), (PAGE_NOACCESS | PAGE_WRITECOMBINE), STATUS_INVALID_PAGE_PROTECTION, STATUS_MEMORY_NOT_ALLOCATED);
+    ALLOC_MEMORY_WITH_FREE(NtCurrentProcess(), Base, 0, RegionSize, (MEM_COMMIT | MEM_RESERVE), (PAGE_READONLY | PAGE_WRITECOMBINE), STATUS_SUCCESS, STATUS_SUCCESS);
+}
+
+/*
 static NTSTATUS SimpleAllocation(VOID) 
 {
 
@@ -121,43 +181,7 @@ static NTSTATUS CustomBaseAllocation(VOID)
 
     return Status;
 }
-
-static NTSTATUS InvalidAllocations(VOID) 
-{
-    NTSTATUS Status;
-    PVOID Base = NULL;
-    SIZE_T RegionSize = 200;
-
-    //invalid process handle
-    Status = ZwAllocateVirtualMemory(NULL, &Base, 0, &RegionSize, (MEM_COMMIT | MEM_RESERVE), PAGE_READWRITE);
-    ok_eq_hex(Status, STATUS_INVALID_HANDLE);
-
-    //double reserve
-    RegionSize = 200;
-    Status = ZwAllocateVirtualMemory(NtCurrentProcess(), &Base, 0, &RegionSize,  MEM_RESERVE, PAGE_READWRITE);
-    ok_eq_hex(Status, STATUS_SUCCESS);
-    Status = ZwAllocateVirtualMemory(NtCurrentProcess(), &Base, 0, &RegionSize, MEM_RESERVE, PAGE_READWRITE);
-    ok_eq_hex(Status, STATUS_CONFLICTING_ADDRESSES);
-
-
-    //invalid upper address
-    Base = (PVOID)((char *)MmSystemRangeStart + 200); //this is invalid 
-    Status = ZwAllocateVirtualMemory(NtCurrentProcess(), &Base, 0, &RegionSize, (MEM_COMMIT | MEM_RESERVE), PAGE_READWRITE);
-    ok_eq_hex(Status, STATUS_INVALID_PARAMETER_2);
-
-    //missing MEM_RESERVE
-    Base = NULL;
-    Status = ZwAllocateVirtualMemory(NtCurrentProcess(), &Base, 0, &RegionSize, (MEM_PHYSICAL), PAGE_READONLY); 
-    ok_eq_hex(Status, STATUS_INVALID_PARAMETER_5);
-
-    //invalid page protection
-    Base = NULL;
-    Status = ZwAllocateVirtualMemory(NtCurrentProcess(), &Base, 0, &RegionSize, (MEM_PHYSICAL | MEM_RESERVE ), PAGE_EXECUTE); 
-    ok_eq_hex(Status, STATUS_INVALID_PARAMETER_6);
-
-
-    return Status;
-}
+*/
 
 static NTSTATUS StressTesting(ULONG AllocationType) 
 {
@@ -202,12 +226,15 @@ static NTSTATUS StressTesting(ULONG AllocationType)
 START_TEST(ZwAllocateVirtualMemory) 
 {
     NTSTATUS Status;
-
+/*
     SimpleAllocation();
 
     CustomBaseAllocation();
 
     InvalidAllocations();
+    */
+
+    SimpleErrorChecks();
 
     Status = StressTesting(MEM_RESERVE);
     ok_eq_hex(Status, STATUS_NO_MEMORY);
