@@ -216,17 +216,15 @@ static NTSTATUS SimpleAllocation(VOID)
     return Status;
 }
 
-/*
-static NTSTATUS CustomBaseAllocation(VOID) 
+static VOID CustomBaseAllocation(VOID) 
 {
 
     NTSTATUS Status;  
     SIZE_T RegionSize = 200;
-    PVOID Base =  (PVOID)GetRandomAddress();
+    PVOID Base =  (PVOID) 0x60025000;;
     PVOID ActualStartingAddress = (PVOID)ROUND_DOWN(Base, MM_ALLOCATION_GRANULARITY); //it is rounded down to the nearest allocation granularity (64k) address
     PVOID EndingAddress = (PVOID)(((ULONG_PTR)Base + RegionSize - 1) | (PAGE_SIZE - 1));
     SIZE_T ActualSize = BYTES_TO_PAGES((ULONG_PTR)EndingAddress - (ULONG_PTR)ActualStartingAddress) * PAGE_SIZE; //calculates the actual size based on the required pages
-
 
     // allocate the memory
     Status = ZwAllocateVirtualMemory(NtCurrentProcess(), (PVOID *)&Base, 0, &RegionSize, (MEM_COMMIT | MEM_RESERVE), PAGE_READWRITE);
@@ -240,9 +238,7 @@ static NTSTATUS CustomBaseAllocation(VOID)
     ok_eq_hex(Status, STATUS_SUCCESS);
     ok_eq_ulong(RegionSize, ActualSize);
 
-    return Status;
 }
-*/
 
 static NTSTATUS StressTesting(ULONG AllocationType) 
 {
@@ -287,13 +283,8 @@ static NTSTATUS StressTesting(ULONG AllocationType)
 START_TEST(ZwAllocateVirtualMemory) 
 {
     NTSTATUS Status;
-/*
-    SimpleAllocation();
 
     CustomBaseAllocation();
-
-    InvalidAllocations();
-    */
 
     SimpleErrorChecks();
 
