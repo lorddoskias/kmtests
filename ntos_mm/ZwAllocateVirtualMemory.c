@@ -219,6 +219,21 @@ static NTSTATUS SimpleAllocation(VOID)
 
 
     //////////////////////////////////////////////////////////////////////////
+    //RESERVE/COMMIT STATE CHANGE 
+    //////////////////////////////////////////////////////////////////////////
+    /*
+    Base = NULL;
+    RegionSize = 1000;
+    
+    ULONG ReturnLength;
+    MEMORY_BASIC_INFORMATION MemInfo = (MEMORY_BASIC_INFORMATION) {0};
+
+    ZwAllocateVirtualMemory(NtCurrentProcess(), &Base, 0, &RegionSize, MEM_COMMIT, PAGE_READWRITE);
+    Status = ZwQueryVirtualMemory(NtCurrentProcess(), Base, 0, &MemInfo, sizeof(MemInfo), &ReturnLength);
+    trace("status is %lx", Status);
+    ok_eq_hex(MemInfo.State, MEM_RESERVE);
+
+    */
     return Status;
 }
 
