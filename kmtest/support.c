@@ -51,7 +51,7 @@ KmtUserCallbackThread(LPVOID Unused)
                         return Error; //stop processing
                     }
 
-                    UserReturned = VirtualQuery(RequestBuffer.Parameters, (PMEMORY_BASIC_INFORMATION)Response, sizeof(MEMORY_BASIC_INFORMATION));
+                    UserReturned = VirtualQuery(RequestBuffer.Parameters, Response, sizeof(MEMORY_BASIC_INFORMATION));
                     if(0 == UserReturned) 
                     {
                         error(Error);
@@ -63,6 +63,8 @@ KmtUserCallbackThread(LPVOID Unused)
                         error(Error);
                         return Error;
                     }
+
+                    HeapFree(GetProcessHeap(),  0, Response);
                     break;
                 }    
 
@@ -106,12 +108,13 @@ DWORD
     HANDLE CallbackThread; 
     DWORD BytesRead;
 
-    CallbackThread = CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE)KmtUserCallbackThread, NULL, 0, NULL);
+    CallbackThread = CreateThread(NULL, 0, KmtUserCallbackThread, NULL, 0, NULL);
 
     if (!DeviceIoControl(KmtestHandle, IOCTL_KMTEST_RUN_TEST, (PVOID)TestName, (DWORD)strlen(TestName), NULL, 0, &BytesRead, NULL))
         error(Error);
 
     KmtFinishedTest = TRUE;
+    CloseHandle(CallbackThread);
     return Error;
 }
 
