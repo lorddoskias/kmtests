@@ -442,9 +442,7 @@ static
             }
 
             //the list cannot be empty since access is serialized and we have just been notified.
-            ExAcquireFastMutex(&WorkList->Lock);
-            Entry = RemoveHeadList(&WorkList->ListHead);
-            ExReleaseFastMutex(&WorkList->Lock);
+            Entry = &WorkList->ListHead;
 
             WorkItem = CONTAINING_RECORD(Entry, KMT_USER_WORK_ENTRY, ListEntry);
             RtlCopyMemory(Irp->AssociatedIrp.SystemBuffer, &WorkItem->Request, sizeof(CALLBACK_REQUEST_PACKET));
@@ -494,7 +492,9 @@ VOID KmtUserModeCallback(CallbackOperation Operation, PVOID Parameters) {
             KeSetEvent(&WorkList->NewWorkEvent, IO_NO_INCREMENT, TRUE);
             KeWaitForSingleObject(&WorkEntry->WorkDoneEvent, Executive, KernelMode, FALSE, NULL);
 
-            //once we are here we need to get the response and then return it 
+            //once we are here we need to do the following:
+            // 1. Get the response for the head KMT work entry
+            // 2. Remove the head KMT work entry
 
 
             break;
