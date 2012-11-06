@@ -12,7 +12,7 @@ kmtest/kmtest.h
 kmtest/kmtest.rc
 kmtest/service.c
 kmtest/testlist.c
-kmtest_drv/kmtest_drv.c
+include/kmt_platform.h
 kmtest_drv/kmtest_drv.rc
 kmtest_drv/kmtest_standalone.c
 kmtest_drv/printf_stubs.c
