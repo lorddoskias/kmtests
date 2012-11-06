@@ -1,9 +1,9 @@
 /*
- * PROJECT:         ReactOS kernel-mode tests
- * LICENSE:         GPLv2+ - See COPYING in the top level directory
- * PURPOSE:         Kernel-Mode Test Suite Driver
- * PROGRAMMER:      Thomas Faber <thfabba@gmx.de>
- */
+* PROJECT:         ReactOS kernel-mode tests
+* LICENSE:         GPLv2+ - See COPYING in the top level directory
+* PURPOSE:         Kernel-Mode Test Suite Driver
+* PROGRAMMER:      Thomas Faber <thfabba@gmx.de>
+*/
 
 #include <kmt_test.h>
 
@@ -14,26 +14,29 @@
 
 extern HANDLE KmtestHandle;
 
-// se to true when the current test run is finished.
+// set to true when the current test run is finished.
 static BOOLEAN KmtFinishedTest;
 
 /**
- * @name KmtRunKernelTest
- *
- * Run the specified kernel-mode test part
- *
- * @param TestName
- *        Name of the test to run
- *
- * @return Win32 error code as returned by DeviceIoControl
- */
+* @name KmtRunKernelTest
+*
+* Run the specified kernel-mode test part
+*
+* @param TestName
+*        Name of the test to run
+*
+* @return Win32 error code as returned by DeviceIoControl
+*/
 DWORD
-KmtRunKernelTest(
+    KmtRunKernelTest(
     IN PCSTR TestName)
 {
     DWORD Error = ERROR_SUCCESS;
     KmtFinishedTest = FALSE;
+    HANDLE CallbackThread; 
     DWORD BytesRead;
+
+    CallbackThread = CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE)KmtUserCallbackThread, NULL, 0, NULL);
 
     if (!DeviceIoControl(KmtestHandle, IOCTL_KMTEST_RUN_TEST, (PVOID)TestName, (DWORD)strlen(TestName), NULL, 0, &BytesRead, NULL))
         error(Error);
@@ -43,7 +46,7 @@ KmtRunKernelTest(
 }
 
 DWORD 
-KmtRunUserInvokeThread(VOID) 
+    KmtUserCallbackThread(VOID) 
 { 
     DWORD Error = ERROR_SUCCESS;
     CALLBACK_REQUEST_PACKET RequestBuffer;
@@ -51,27 +54,28 @@ KmtRunUserInvokeThread(VOID)
     PVOID Response;
     DWORD BytesReturned;
 
+    trace("[USERMODE CALLBACK] Thread started\n");
     //infinite loop which will constantly pend/block on the appropriate irp
     while(!KmtFinishedTest) {
-        
+
         if(DeviceIoControl(KmtestHandle, IOCTL_KMTEST_USERMODE_AWAIT_REQ, NULL, 0,  &RequestBuffer, sizeof(RequestBuffer), &BytesReturned, NULL)) 
         {
             switch(RequestBuffer.OperationType) 
             {
-                case QueryVirtualMemory:
-                    
+            case QueryVirtualMemory:
+                {
                     Response  = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(MEMORY_BASIC_INFORMATION));
                     if(NULL == Response) 
                     {
                         error(Error);
                         return Error; //stop processing
                     }
-            
+
                     UserReturned = VirtualQuery(RequestBuffer.Parameters, (PMEMORY_BASIC_INFORMATION)Response, sizeof(MEMORY_BASIC_INFORMATION));
                     if(0 == UserReturned) 
                     {
                         error(Error);
-                        return Error; //stop processing
+                        return Error;
                     }
 
                     if(!DeviceIoControl(KmtestHandle, IOCTL_KMTEST_USERMODE_SEND_RESPONSE, Response, sizeof(MEMORY_BASIC_INFORMATION), NULL, 0, NULL, NULL))
@@ -79,12 +83,15 @@ KmtRunUserInvokeThread(VOID)
                         error(Error);
                         return Error;
                     }
-
-                break;
+                    break;
+                }    
 
             default: 
-                trace("UNRECOGNISED USER-MODE CALLBACK REQUEST\n");
-                break;
+                {
+                    trace("UNRECOGNISED USER-MODE CALLBACK REQUEST\n");
+                    break;
+                }
+
             }
         } else 
 
@@ -93,7 +100,7 @@ KmtRunUserInvokeThread(VOID)
             break;
         }
     }
-
+    trace("[USERMODE CALLBACK] Thread finished\n");
     return Error;
 }
 
@@ -102,17 +109,17 @@ static SC_HANDLE TestServiceHandle;
 static HANDLE TestDeviceHandle;
 
 /**
- * @name KmtLoadDriver
- *
- * Load the specified special-purpose driver (create/start the service)
- *
- * @param ServiceName
- *        Name of the driver service (Kmtest- prefix will be added automatically)
- * @param RestartIfRunning
- *        TRUE to stop and restart the service if it is already running
- */
+* @name KmtLoadDriver
+*
+* Load the specified special-purpose driver (create/start the service)
+*
+* @param ServiceName
+*        Name of the driver service (Kmtest- prefix will be added automatically)
+* @param RestartIfRunning
+*        TRUE to stop and restart the service if it is already running
+*/
 VOID
-KmtLoadDriver(
+    KmtLoadDriver(
     IN PCWSTR ServiceName,
     IN BOOLEAN RestartIfRunning)
 {
@@ -135,12 +142,12 @@ KmtLoadDriver(
 }
 
 /**
- * @name KmtUnloadDriver
- *
- * Unload special-purpose driver (stop the service)
- */
+* @name KmtUnloadDriver
+*
+* Unload special-purpose driver (stop the service)
+*/
 VOID
-KmtUnloadDriver(VOID)
+    KmtUnloadDriver(VOID)
 {
     DWORD Error = ERROR_SUCCESS;
 
@@ -154,12 +161,12 @@ KmtUnloadDriver(VOID)
 }
 
 /**
- * @name KmtOpenDriver
- *
- * Open special-purpose driver (acquire a device handle)
- */
+* @name KmtOpenDriver
+*
+* Open special-purpose driver (acquire a device handle)
+*/
 VOID
-KmtOpenDriver(VOID)
+    KmtOpenDriver(VOID)
 {
     DWORD Error = ERROR_SUCCESS;
     WCHAR DevicePath[MAX_PATH];
@@ -180,12 +187,12 @@ KmtOpenDriver(VOID)
 }
 
 /**
- * @name KmtCloseDriver
- *
- * Close special-purpose driver (close device handle)
- */
+* @name KmtCloseDriver
+*
+* Close special-purpose driver (close device handle)
+*/
 VOID
-KmtCloseDriver(VOID)
+    KmtCloseDriver(VOID)
 {
     DWORD Error = ERROR_SUCCESS;
 
@@ -200,16 +207,16 @@ KmtCloseDriver(VOID)
 }
 
 /**
- * @name KmtSendToDriver
- *
- * Unload special-purpose driver (stop the service)
- *
- * @param ControlCode
- *
- * @return Win32 error code as returned by DeviceIoControl
- */
+* @name KmtSendToDriver
+*
+* Unload special-purpose driver (stop the service)
+*
+* @param ControlCode
+*
+* @return Win32 error code as returned by DeviceIoControl
+*/
 DWORD
-KmtSendToDriver(
+    KmtSendToDriver(
     IN DWORD ControlCode)
 {
     DWORD BytesRead;
@@ -223,17 +230,17 @@ KmtSendToDriver(
 }
 
 /**
- * @name KmtSendStringToDriver
- *
- * Unload special-purpose driver (stop the service)
- *
- * @param ControlCode
- * @param String
- *
- * @return Win32 error code as returned by DeviceIoControl
- */
+* @name KmtSendStringToDriver
+*
+* Unload special-purpose driver (stop the service)
+*
+* @param ControlCode
+* @param String
+*
+* @return Win32 error code as returned by DeviceIoControl
+*/
 DWORD
-KmtSendStringToDriver(
+    KmtSendStringToDriver(
     IN DWORD ControlCode,
     IN PCSTR String)
 {
@@ -248,17 +255,17 @@ KmtSendStringToDriver(
 }
 
 /**
- * @name KmtSendBufferToDriver
- *
- * @param ControlCode
- * @param Buffer
- * @param InLength
- * @param OutLength
- *
- * @return Win32 error code as returned by DeviceIoControl
- */
+* @name KmtSendBufferToDriver
+*
+* @param ControlCode
+* @param Buffer
+* @param InLength
+* @param OutLength
+*
+* @return Win32 error code as returned by DeviceIoControl
+*/
 DWORD
-KmtSendBufferToDriver(
+    KmtSendBufferToDriver(
     IN DWORD ControlCode,
     IN OUT PVOID Buffer OPTIONAL,
     IN DWORD InLength,
