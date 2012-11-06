@@ -18,35 +18,15 @@ extern HANDLE KmtestHandle;
 static BOOLEAN KmtFinishedTest;
 
 /**
-* @name KmtRunKernelTest
+* @name KmtUserCallbackThread
 *
-* Run the specified kernel-mode test part
+* Routine which awaits callback requests from kernel-mode
 *
-* @param TestName
-*        Name of the test to run
 *
-* @return Win32 error code as returned by DeviceIoControl
+* @return Win32 error code as returned by DeviceIoControl/HeapAlloc/VirtualQuery
 */
-DWORD
-    KmtRunKernelTest(
-    IN PCSTR TestName)
-{
-    DWORD Error = ERROR_SUCCESS;
-    KmtFinishedTest = FALSE;
-    HANDLE CallbackThread; 
-    DWORD BytesRead;
-
-    CallbackThread = CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE)KmtUserCallbackThread, NULL, 0, NULL);
-
-    if (!DeviceIoControl(KmtestHandle, IOCTL_KMTEST_RUN_TEST, (PVOID)TestName, (DWORD)strlen(TestName), NULL, 0, &BytesRead, NULL))
-        error(Error);
-
-    KmtFinishedTest = TRUE;
-    return Error;
-}
-
-DWORD 
-    KmtUserCallbackThread(VOID) 
+DWORD WINAPI 
+KmtUserCallbackThread(LPVOID Unused) 
 { 
     DWORD Error = ERROR_SUCCESS;
     CALLBACK_REQUEST_PACKET RequestBuffer;
@@ -103,6 +83,39 @@ DWORD
     trace("[USERMODE CALLBACK] Thread finished\n");
     return Error;
 }
+
+
+
+
+/**
+* @name KmtRunKernelTest
+*
+* Run the specified kernel-mode test part
+*
+* @param TestName
+*        Name of the test to run
+*
+* @return Win32 error code as returned by DeviceIoControl
+*/
+DWORD
+    KmtRunKernelTest(
+    IN PCSTR TestName)
+{
+    DWORD Error = ERROR_SUCCESS;
+    KmtFinishedTest = FALSE;
+    HANDLE CallbackThread; 
+    DWORD BytesRead;
+
+    CallbackThread = CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE)KmtUserCallbackThread, NULL, 0, NULL);
+
+    if (!DeviceIoControl(KmtestHandle, IOCTL_KMTEST_RUN_TEST, (PVOID)TestName, (DWORD)strlen(TestName), NULL, 0, &BytesRead, NULL))
+        error(Error);
+
+    KmtFinishedTest = TRUE;
+    return Error;
+}
+
+
 
 static WCHAR TestServiceName[MAX_PATH];
 static SC_HANDLE TestServiceHandle;
