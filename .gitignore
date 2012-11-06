@@ -6,15 +6,11 @@ example/Example_drv.c
 example/Example_user.c
 example/GuardedMemory.c
 example/KernelType.c
-include/kmt_platform.h
-include/kmt_public.h
-include/kmt_test.h
 kmtest/kmtest.c
 kmtest/kmtest.exe.manifest
 kmtest/kmtest.h
 kmtest/kmtest.rc
 kmtest/service.c
-kmtest/support.c
 kmtest/testlist.c
 kmtest_drv/kmtest_drv.c
 kmtest_drv/kmtest_drv.rc
