@@ -112,6 +112,11 @@ NTSTATUS
 
     /* Init the usermode callback structure */
     WorkList = (PKMT_USER_WORK_LIST) ExAllocatePoolWithTag(NonPagedPool, sizeof(KMT_USER_WORK_LIST), 'kroW');
+    if(NULL == WorkList) 
+    {
+        goto cleanup;
+    }
+
     ExInitializeFastMutex(&WorkList->Lock);
     KeInitializeEvent(&WorkList->NewWorkEvent, NotificationEvent, FALSE);
 
@@ -428,9 +433,10 @@ static
         }
     case IOCTL_KMTEST_USERMODE_AWAIT_REQ:
         {
-            PLIST_ENTRY Entry;
-            PKMT_USER_WORK_ENTRY WorkItem;
-            KeWaitForSingleObject(&WorkList->NewWorkEvent, UserRequest, KernelMode, FALSE, NULL);
+            PLIST_ENTRY Entry = NULL;
+            PKMT_USER_WORK_ENTRY WorkItem = NULL;
+
+            KeWaitForSingleObject(&WorkList->NewWorkEvent, UserRequest, UserMode, FALSE, NULL);
 
             DPRINT("DriverIoControl. IOCTL_KMTEST_USERMODE_AWAIT_REQ, len=%lu\n", IoStackLocation->Parameters.DeviceIoControl.OutputBufferLength);
 
@@ -442,9 +448,9 @@ static
             }
 
             //the list cannot be empty since access is serialized and we have just been notified.
-            Entry = &WorkList->ListHead;
-
+            Entry = WorkList->ListHead.Flink;
             WorkItem = CONTAINING_RECORD(Entry, KMT_USER_WORK_ENTRY, ListEntry);
+
             RtlCopyMemory(Irp->AssociatedIrp.SystemBuffer, &WorkItem->Request, sizeof(CALLBACK_REQUEST_PACKET));
             Status = STATUS_SUCCESS;
             Length = sizeof(CALLBACK_REQUEST_PACKET);
@@ -453,7 +459,29 @@ static
 
         }
 
+    case IOCTL_KMTEST_USERMODE_SEND_RESPONSE: 
+        {
+            //copy the response to the head entry 
 
+            PLIST_ENTRY Entry = NULL; 
+            PKMT_USER_WORK_ENTRY WorkItem = NULL;
+
+            Entry = WorkList->ListHead.Flink;
+            WorkItem = CONTAINING_RECORD(Entry, KMT_USER_WORK_ENTRY, ListEntry);
+            WorkItem->Response = ExAllocatePoolWithTag(PagedPool, IoStackLocation->Parameters.DeviceIoControl.InputBufferLength, 'pseR');
+
+            if(NULL == WorkItem->Response) 
+            {
+                Status = STATUS_INSUFFICIENT_RESOURCES;
+                Length = 0;
+                break;
+            }
+
+            RtlCopyMemory(WorkItem->Response, Irp->AssociatedIrp.SystemBuffer, IoStackLocation->Parameters.DeviceIoControl.InputBufferLength);
+            Status = STATUS_SUCCESS;
+            Length = IoStackLocation->Parameters.DeviceIoControl.InputBufferLength;
+            KeSetEvent(&WorkItem->WorkDoneEvent, IO_NO_INCREMENT, FALSE);
+        }
 
     default:
         DPRINT1("DriverIoControl. Invalid IoCtl code 0x%08X\n",
@@ -471,15 +499,26 @@ static
 }
 
 //Enqueus a request to the usermode callback queue and blocks until the work is finished.
-VOID KmtUserModeCallback(CallbackOperation Operation, PVOID Parameters) {
-    PKMT_USER_WORK_ENTRY WorkEntry;
+PVOID KmtUserModeCallback(CallbackOperation Operation, PVOID Parameters) 
+{
+    PKMT_USER_WORK_ENTRY WorkEntry = NULL;
+    PVOID Result = NULL;
     PAGED_CODE();
 
     switch(Operation) {
 
     case QueryVirtualMemory: 
         {
+            PLIST_ENTRY Entry = NULL;
+
             WorkEntry = ExAllocatePoolWithTag(PagedPool, sizeof(KMT_USER_WORK_ENTRY), 'ekrW');
+            
+            if(NULL == WorkEntry) 
+            {
+                break;
+            }
+
+            trace("Allocated mem\n");
             KeInitializeEvent(&WorkEntry->WorkDoneEvent, NotificationEvent, FALSE);
             WorkEntry->Request.OperationType = Operation;
             WorkEntry->Request.Parameters = Parameters;
@@ -488,16 +527,22 @@ VOID KmtUserModeCallback(CallbackOperation Operation, PVOID Parameters) {
             InsertTailList(&WorkList->ListHead, &WorkEntry->ListEntry);
             ExReleaseFastMutex(&WorkList->Lock);
 
+            trace("Inserted in list\n");
             //there is new work to be done
             KeSetEvent(&WorkList->NewWorkEvent, IO_NO_INCREMENT, TRUE);
-            KeWaitForSingleObject(&WorkEntry->WorkDoneEvent, Executive, KernelMode, FALSE, NULL);
+            //await to be awoken by the usermode threads
+            KeWaitForSingleObject(&WorkEntry->WorkDoneEvent, Executive, UserMode, FALSE, NULL);
 
-            //once we are here we need to do the following:
-            // 1. Get the response for the head KMT work entry
-            // 2. Remove the head KMT work entry
+            ExAcquireFastMutex(&WorkList->Lock);
+            Entry = RemoveHeadList(&WorkList->ListHead);
+            ExReleaseFastMutex(&WorkList->Lock);
 
+            Result = (PKMT_USER_WORK_ENTRY)CONTAINING_RECORD(Entry, KMT_USER_WORK_ENTRY, ListEntry)->Response;
 
+            ExFreePoolWithTag(Entry, 'ekrW');
             break;
+
+
         }
 
     default: 
@@ -507,4 +552,6 @@ VOID KmtUserModeCallback(CallbackOperation Operation, PVOID Parameters) {
         }
 
     }
+
+    return Result;
 }

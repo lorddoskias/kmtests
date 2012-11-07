@@ -29,7 +29,7 @@ DWORD WINAPI
 KmtUserCallbackThread(LPVOID Unused) 
 { 
     DWORD Error = ERROR_SUCCESS;
-    CALLBACK_REQUEST_PACKET RequestBuffer;
+    CALLBACK_REQUEST_PACKET OutputBuffer;
     SIZE_T UserReturned;
     PVOID Response;
     DWORD BytesReturned;
@@ -38,12 +38,14 @@ KmtUserCallbackThread(LPVOID Unused)
     //infinite loop which will constantly pend/block on the appropriate irp
     while(!KmtFinishedTest) {
 
-        if(DeviceIoControl(KmtestHandle, IOCTL_KMTEST_USERMODE_AWAIT_REQ, NULL, 0,  &RequestBuffer, sizeof(RequestBuffer), &BytesReturned, NULL)) 
+        if(DeviceIoControl(KmtestHandle, IOCTL_KMTEST_USERMODE_AWAIT_REQ, NULL, 0,  &OutputBuffer, sizeof(OutputBuffer), &BytesReturned, NULL)) 
         {
-            switch(RequestBuffer.OperationType) 
+            switch(OutputBuffer.OperationType) 
             {
             case QueryVirtualMemory:
                 {
+                    trace("RECEIVED CALLBACK REQUEST FOR ADDRESS %p\n", OutputBuffer.Parameters);
+
                     Response  = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(MEMORY_BASIC_INFORMATION));
                     if(NULL == Response) 
                     {
@@ -51,7 +53,7 @@ KmtUserCallbackThread(LPVOID Unused)
                         return Error; //stop processing
                     }
 
-                    UserReturned = VirtualQuery(RequestBuffer.Parameters, Response, sizeof(MEMORY_BASIC_INFORMATION));
+                    UserReturned = VirtualQuery(OutputBuffer.Parameters, Response, sizeof(MEMORY_BASIC_INFORMATION));
                     if(0 == UserReturned) 
                     {
                         error(Error);

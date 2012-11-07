@@ -112,6 +112,7 @@ extern PCSTR KmtMajorFunctionNames[];
 extern PDRIVER_OBJECT KmtDriverObject;
 
 VOID KmtSetIrql(IN KIRQL NewIrql);
+PVOID KmtUserModeCallback(CallbackOperation Operation, PVOID Parameters);
 BOOLEAN KmtAreInterruptsEnabled(VOID);
 ULONG KmtGetPoolTag(PVOID Memory);
 #elif defined KMT_USER_MODE
