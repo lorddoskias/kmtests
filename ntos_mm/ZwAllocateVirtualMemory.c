@@ -329,10 +329,10 @@ START_TEST(ZwAllocateVirtualMemory)
     //    //Normal operation
     //    //////////////////////////////////////////////////////////////////////////
         Status = ZwAllocateVirtualMemory(NtCurrentProcess(), &Base, 0, &RegionSize, MEM_COMMIT, PAGE_READWRITE);
-        trace("Sending usermodecallback request for base: %p\n", Base);
+        DbgPrint("Sending usermodecallback request for base: %p\n", Base);
         Test = KmtUserModeCallback(QueryVirtualMemory, Base);
         if(NULL != Test) {
-        trace("TEST IS %p\n", Test);
+        DbgPrint("TEST IS %p\n", Test);
         }
         
 

@@ -112,13 +112,14 @@ NTSTATUS
 
     /* Init the usermode callback structure */
     WorkList = (PKMT_USER_WORK_LIST) ExAllocatePoolWithTag(NonPagedPool, sizeof(KMT_USER_WORK_LIST), 'kroW');
-    if(NULL == WorkList) 
+    if ( WorkList == NULL ) 
     {
         goto cleanup;
     }
 
     ExInitializeFastMutex(&WorkList->Lock);
-    KeInitializeEvent(&WorkList->NewWorkEvent, NotificationEvent, FALSE);
+    KeInitializeEvent(&WorkList->NewWorkEvent, SynchronizationEvent, FALSE);
+    InitializeListHead(&WorkList->ListHead);
 
 cleanup:
     if (MainDeviceObject && !NT_SUCCESS(Status))
@@ -436,9 +437,10 @@ static
             PLIST_ENTRY Entry = NULL;
             PKMT_USER_WORK_ENTRY WorkItem = NULL;
 
+            DbgPrint("FIRST\n");
             KeWaitForSingleObject(&WorkList->NewWorkEvent, UserRequest, UserMode, FALSE, NULL);
 
-            DPRINT("DriverIoControl. IOCTL_KMTEST_USERMODE_AWAIT_REQ, len=%lu\n", IoStackLocation->Parameters.DeviceIoControl.OutputBufferLength);
+            DbgPrint("DriverIoControl. IOCTL_KMTEST_USERMODE_AWAIT_REQ, len=%lu\n", IoStackLocation->Parameters.DeviceIoControl.OutputBufferLength);
 
             if(IoStackLocation->Parameters.DeviceIoControl.OutputBufferLength < sizeof(CALLBACK_REQUEST_PACKET)) 
             {
@@ -466,11 +468,13 @@ static
             PLIST_ENTRY Entry = NULL; 
             PKMT_USER_WORK_ENTRY WorkItem = NULL;
 
+            DbgPrint("SECOND\n");
+
             Entry = WorkList->ListHead.Flink;
             WorkItem = CONTAINING_RECORD(Entry, KMT_USER_WORK_ENTRY, ListEntry);
             WorkItem->Response = ExAllocatePoolWithTag(PagedPool, IoStackLocation->Parameters.DeviceIoControl.InputBufferLength, 'pseR');
 
-            if(NULL == WorkItem->Response) 
+            if ( WorkItem->Response == NULL ) 
             {
                 Status = STATUS_INSUFFICIENT_RESOURCES;
                 Length = 0;
@@ -481,6 +485,7 @@ static
             Status = STATUS_SUCCESS;
             Length = IoStackLocation->Parameters.DeviceIoControl.InputBufferLength;
             KeSetEvent(&WorkItem->WorkDoneEvent, IO_NO_INCREMENT, FALSE);
+            break;
         }
 
     default:
@@ -504,7 +509,7 @@ PVOID KmtUserModeCallback(CallbackOperation Operation, PVOID Parameters)
     PKMT_USER_WORK_ENTRY WorkEntry = NULL;
     PVOID Result = NULL;
     PAGED_CODE();
-
+    DbgPrint("in usermode callback \n");
     switch(Operation) {
 
     case QueryVirtualMemory: 
@@ -513,13 +518,12 @@ PVOID KmtUserModeCallback(CallbackOperation Operation, PVOID Parameters)
 
             WorkEntry = ExAllocatePoolWithTag(PagedPool, sizeof(KMT_USER_WORK_ENTRY), 'ekrW');
             
-            if(NULL == WorkEntry) 
+            if ( WorkEntry == NULL ) 
             {
                 break;
             }
-
-            trace("Allocated mem\n");
-            KeInitializeEvent(&WorkEntry->WorkDoneEvent, NotificationEvent, FALSE);
+            
+            KeInitializeEvent(&WorkEntry->WorkDoneEvent, SynchronizationEvent, FALSE);
             WorkEntry->Request.OperationType = Operation;
             WorkEntry->Request.Parameters = Parameters;
 
@@ -527,10 +531,9 @@ PVOID KmtUserModeCallback(CallbackOperation Operation, PVOID Parameters)
             InsertTailList(&WorkList->ListHead, &WorkEntry->ListEntry);
             ExReleaseFastMutex(&WorkList->Lock);
 
-            trace("Inserted in list\n");
-            //there is new work to be done
-            KeSetEvent(&WorkList->NewWorkEvent, IO_NO_INCREMENT, TRUE);
+            KeSetEvent(&WorkList->NewWorkEvent, IO_NO_INCREMENT, FALSE);
             //await to be awoken by the usermode threads
+            DbgPrint("Awaiting to be awoken\n");
             KeWaitForSingleObject(&WorkEntry->WorkDoneEvent, Executive, UserMode, FALSE, NULL);
 
             ExAcquireFastMutex(&WorkList->Lock);
@@ -541,8 +544,6 @@ PVOID KmtUserModeCallback(CallbackOperation Operation, PVOID Parameters)
 
             ExFreePoolWithTag(Entry, 'ekrW');
             break;
-
-
         }
 
     default: 

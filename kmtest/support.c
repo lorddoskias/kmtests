@@ -15,7 +15,7 @@
 extern HANDLE KmtestHandle;
 
 // set to true when the current test run is finished.
-static BOOLEAN KmtFinishedTest;
+BOOLEAN KmtFinishedTest;
 
 /**
 * @name KmtUserCallbackThread
@@ -34,17 +34,16 @@ KmtUserCallbackThread(LPVOID Unused)
     PVOID Response;
     DWORD BytesReturned;
 
-    trace("[USERMODE CALLBACK] Thread started\n");
+    printf("[USERMODE CALLBACK] Thread started\n");
     //infinite loop which will constantly pend/block on the appropriate irp
     while(!KmtFinishedTest) {
-
+        
         if(DeviceIoControl(KmtestHandle, IOCTL_KMTEST_USERMODE_AWAIT_REQ, NULL, 0,  &OutputBuffer, sizeof(OutputBuffer), &BytesReturned, NULL)) 
         {
             switch(OutputBuffer.OperationType) 
             {
             case QueryVirtualMemory:
-                {
-                    trace("RECEIVED CALLBACK REQUEST FOR ADDRESS %p\n", OutputBuffer.Parameters);
+                { 
 
                     Response  = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(MEMORY_BASIC_INFORMATION));
                     if(NULL == Response) 
@@ -72,7 +71,7 @@ KmtUserCallbackThread(LPVOID Unused)
 
             default: 
                 {
-                    trace("UNRECOGNISED USER-MODE CALLBACK REQUEST\n");
+                    printf("UNRECOGNISED USER-MODE CALLBACK REQUEST\n");
                     break;
                 }
 
@@ -106,9 +105,10 @@ DWORD
     IN PCSTR TestName)
 {
     DWORD Error = ERROR_SUCCESS;
-    KmtFinishedTest = FALSE;
     HANDLE CallbackThread; 
     DWORD BytesRead;
+
+	KmtFinishedTest = FALSE;
 
     CallbackThread = CreateThread(NULL, 0, KmtUserCallbackThread, NULL, 0, NULL);
 
