@@ -1,10 +1,9 @@
-
 /*
-* PROJECT:         ReactOS kernel-mode tests
-* LICENSE:         GPLv2+ - See COPYING in the top level directory
-* PURPOSE:         Kernel-Mode Test Suite Driver
-* PROGRAMMER:      Thomas Faber <thfabba@gmx.de>
-*/
+ * PROJECT:         ReactOS kernel-mode tests
+ * LICENSE:         GPLv2+ - See COPYING in the top level directory
+ * PURPOSE:         Kernel-Mode Test Suite Driver
+ * PROGRAMMER:      Thomas Faber <thfabba@gmx.de>
+ */
 
 #include <ntddk.h>
 #include <ntifs.h>
@@ -36,19 +35,19 @@ typedef struct _KMT_USER_WORK_LIST
     KEVENT NewWorkEvent;
 } KMT_USER_WORK_LIST, *PKMT_USER_WORK_LIST;
 
-static VOID KmtCleanUsermodeCallbacks();
-//////////////////////////////////////////////////
+
 /* Prototypes */
 DRIVER_INITIALIZE DriverEntry;
 static DRIVER_UNLOAD DriverUnload;
 __drv_dispatchType(IRP_MJ_CREATE)
-    static DRIVER_DISPATCH DriverCreate;
+static DRIVER_DISPATCH DriverCreate;
 __drv_dispatchType(IRP_MJ_CLEANUP)
-    static DRIVER_DISPATCH DriverCleanup;
+static DRIVER_DISPATCH DriverCleanup;
 __drv_dispatchType(IRP_MJ_CLOSE)
-    static DRIVER_DISPATCH DriverClose;
+static DRIVER_DISPATCH DriverClose;
 __drv_dispatchType(IRP_MJ_DEVICE_CONTROL)
-    static DRIVER_DISPATCH DriverIoControl;
+static DRIVER_DISPATCH DriverIoControl;
+static VOID KmtCleanUsermodeCallbacks();
 
 /* Globals */
 static PDEVICE_OBJECT MainDeviceObject;
@@ -57,20 +56,20 @@ PKMT_USER_WORK_LIST WorkList = NULL;
 
 /* Entry */
 /**
-* @name DriverEntry
-*
-* Driver Entry point.
-*
-* @param DriverObject
-*        Driver Object
-* @param RegistryPath
-*        Driver Registry Path
-*
-* @return Status
-*/
+ * @name DriverEntry
+ *
+ * Driver Entry point.
+ *
+ * @param DriverObject
+ *        Driver Object
+ * @param RegistryPath
+ *        Driver Registry Path
+ *
+ * @return Status
+ */
 NTSTATUS
-    NTAPI
-    DriverEntry(
+NTAPI
+DriverEntry(
     IN PDRIVER_OBJECT DriverObject,
     IN PUNICODE_STRING RegistryPath)
 {
@@ -92,16 +91,16 @@ NTSTATUS
 
     RtlInitUnicodeString(&DeviceName, KMTEST_DEVICE_DRIVER_PATH);
     Status = IoCreateDevice(DriverObject, sizeof(KMT_DEVICE_EXTENSION),
-        &DeviceName,
-        FILE_DEVICE_UNKNOWN,
-        FILE_DEVICE_SECURE_OPEN | FILE_READ_ONLY_DEVICE,
-        FALSE, &MainDeviceObject);
+                            &DeviceName,
+                            FILE_DEVICE_UNKNOWN,
+                            FILE_DEVICE_SECURE_OPEN | FILE_READ_ONLY_DEVICE,
+                            FALSE, &MainDeviceObject);
 
     if (!NT_SUCCESS(Status))
         goto cleanup;
 
     DPRINT("DriverEntry. Created DeviceObject %p. DeviceExtension %p\n",
-        MainDeviceObject, MainDeviceObject->DeviceExtension);
+             MainDeviceObject, MainDeviceObject->DeviceExtension);
     DeviceExtension = MainDeviceObject->DeviceExtension;
     DeviceExtension->ResultBuffer = NULL;
     DeviceExtension->Mdl = NULL;
@@ -112,9 +111,9 @@ NTSTATUS
     DriverObject->MajorFunction[IRP_MJ_CLOSE] = DriverClose;
     DriverObject->MajorFunction[IRP_MJ_DEVICE_CONTROL] = DriverIoControl;
 
-    /* Init the usermode callback structure */
+	/* Init the usermode callback structure */
     WorkList = (PKMT_USER_WORK_LIST) ExAllocatePoolWithTag(NonPagedPool, sizeof(KMT_USER_WORK_LIST), 'kroW');
-    if ( WorkList == NULL ) 
+    if (WorkList == NULL) 
     {
         goto cleanup;
     }
@@ -122,7 +121,7 @@ NTSTATUS
     ExInitializeFastMutex(&WorkList->Lock);
     KeInitializeEvent(&WorkList->NewWorkEvent, SynchronizationEvent, FALSE);
     InitializeListHead(&WorkList->ListHead);
-
+	
 cleanup:
     if (MainDeviceObject && !NT_SUCCESS(Status))
     {
@@ -135,17 +134,17 @@ cleanup:
 
 /* Dispatch functions */
 /**
-* @name DriverUnload
-*
-* Driver cleanup funtion.
-*
-* @param DriverObject
-*        Driver Object
-*/
+ * @name DriverUnload
+ *
+ * Driver cleanup funtion.
+ *
+ * @param DriverObject
+ *        Driver Object
+ */
 static
-    VOID
-    NTAPI
-    DriverUnload(
+VOID
+NTAPI
+DriverUnload(
     IN PDRIVER_OBJECT DriverObject)
 {
     PAGED_CODE();
@@ -153,8 +152,7 @@ static
     UNREFERENCED_PARAMETER(DriverObject);
 
     DPRINT("DriverUnload\n");
-    KmtCleanUsermodeCallbacks();
-
+	KmtCleanUsermodeCallbacks();
     if (MainDeviceObject)
     {
         PKMT_DEVICE_EXTENSION DeviceExtension = MainDeviceObject->DeviceExtension;
@@ -166,21 +164,21 @@ static
 }
 
 /**
-* @name DriverCreate
-*
-* Driver Dispatch function for IRP_MJ_CREATE
-*
-* @param DeviceObject
-*        Device Object
-* @param Irp
-*        I/O request packet
-*
-* @return Status
-*/
+ * @name DriverCreate
+ *
+ * Driver Dispatch function for IRP_MJ_CREATE
+ *
+ * @param DeviceObject
+ *        Device Object
+ * @param Irp
+ *        I/O request packet
+ *
+ * @return Status
+ */
 static
-    NTSTATUS
-    NTAPI
-    DriverCreate(
+NTSTATUS
+NTAPI
+DriverCreate(
     IN PDEVICE_OBJECT DeviceObject,
     IN PIRP Irp)
 {
@@ -192,8 +190,8 @@ static
     IoStackLocation = IoGetCurrentIrpStackLocation(Irp);
 
     DPRINT("DriverCreate. DeviceObject=%p, RequestorMode=%d, FileObject=%p, FsContext=%p, FsContext2=%p\n",
-        DeviceObject, Irp->RequestorMode, IoStackLocation->FileObject,
-        IoStackLocation->FileObject->FsContext, IoStackLocation->FileObject->FsContext2);
+             DeviceObject, Irp->RequestorMode, IoStackLocation->FileObject,
+             IoStackLocation->FileObject->FsContext, IoStackLocation->FileObject->FsContext2);
 
     Irp->IoStatus.Status = Status;
     Irp->IoStatus.Information = 0;
@@ -204,21 +202,21 @@ static
 }
 
 /**
-* @name DriverCleanup
-*
-* Driver Dispatch function for IRP_MJ_CLEANUP
-*
-* @param DeviceObject
-*        Device Object
-* @param Irp
-*        I/O request packet
-*
-* @return Status
-*/
+ * @name DriverCleanup
+ *
+ * Driver Dispatch function for IRP_MJ_CLEANUP
+ *
+ * @param DeviceObject
+ *        Device Object
+ * @param Irp
+ *        I/O request packet
+ *
+ * @return Status
+ */
 static
-    NTSTATUS
-    NTAPI
-    DriverCleanup(
+NTSTATUS
+NTAPI
+DriverCleanup(
     IN PDEVICE_OBJECT DeviceObject,
     IN PIRP Irp)
 {
@@ -231,8 +229,8 @@ static
     IoStackLocation = IoGetCurrentIrpStackLocation(Irp);
 
     DPRINT("DriverCleanup. DeviceObject=%p, RequestorMode=%d, FileObject=%p, FsContext=%p, FsContext2=%p\n",
-        DeviceObject, Irp->RequestorMode, IoStackLocation->FileObject,
-        IoStackLocation->FileObject->FsContext, IoStackLocation->FileObject->FsContext2);
+             DeviceObject, Irp->RequestorMode, IoStackLocation->FileObject,
+             IoStackLocation->FileObject->FsContext, IoStackLocation->FileObject->FsContext2);
 
     ASSERT(IoStackLocation->FileObject->FsContext2 == NULL);
     DeviceExtension = DeviceObject->DeviceExtension;
@@ -257,21 +255,21 @@ static
 }
 
 /**
-* @name DriverClose
-*
-* Driver Dispatch function for IRP_MJ_CLOSE
-*
-* @param DeviceObject
-*        Device Object
-* @param Irp
-*        I/O request packet
-*
-* @return Status
-*/
+ * @name DriverClose
+ *
+ * Driver Dispatch function for IRP_MJ_CLOSE
+ *
+ * @param DeviceObject
+ *        Device Object
+ * @param Irp
+ *        I/O request packet
+ *
+ * @return Status
+ */
 static
-    NTSTATUS
-    NTAPI
-    DriverClose(
+NTSTATUS
+NTAPI
+DriverClose(
     IN PDEVICE_OBJECT DeviceObject,
     IN PIRP Irp)
 {
@@ -280,7 +278,7 @@ static
     PAGED_CODE();
 
     DPRINT("DriverClose. DeviceObject=%p, RequestorMode=%d\n",
-        DeviceObject, Irp->RequestorMode);
+             DeviceObject, Irp->RequestorMode);
 
     Irp->IoStatus.Status = Status;
     Irp->IoStatus.Information = 0;
@@ -291,21 +289,21 @@ static
 }
 
 /**
-* @name DriverIoControl
-*
-* Driver Dispatch function for IRP_MJ_DEVICE_CONTROL
-*
-* @param DeviceObject
-*        Device Object
-* @param Irp
-*        I/O request packet
-*
-* @return Status
-*/
+ * @name DriverIoControl
+ *
+ * Driver Dispatch function for IRP_MJ_DEVICE_CONTROL
+ *
+ * @param DeviceObject
+ *        Device Object
+ * @param Irp
+ *        I/O request packet
+ *
+ * @return Status
+ */
 static
-    NTSTATUS
-    NTAPI
-    DriverIoControl(
+NTSTATUS
+NTAPI
+DriverIoControl(
     IN PDEVICE_OBJECT DeviceObject,
     IN PIRP Irp)
 {
@@ -318,20 +316,20 @@ static
     IoStackLocation = IoGetCurrentIrpStackLocation(Irp);
 
     DPRINT("DriverIoControl. Code=0x%08X, DeviceObject=%p, FileObject=%p, FsContext=%p, FsContext2=%p\n",
-        IoStackLocation->Parameters.DeviceIoControl.IoControlCode,
-        DeviceObject, IoStackLocation->FileObject,
-        IoStackLocation->FileObject->FsContext, IoStackLocation->FileObject->FsContext2);
+             IoStackLocation->Parameters.DeviceIoControl.IoControlCode,
+             DeviceObject, IoStackLocation->FileObject,
+             IoStackLocation->FileObject->FsContext, IoStackLocation->FileObject->FsContext2);
 
     switch (IoStackLocation->Parameters.DeviceIoControl.IoControlCode)
     {
-    case IOCTL_KMTEST_GET_TESTS:
+        case IOCTL_KMTEST_GET_TESTS:
         {
             PCKMT_TEST TestEntry;
             LPSTR OutputBuffer = Irp->AssociatedIrp.SystemBuffer;
             size_t Remaining = IoStackLocation->Parameters.DeviceIoControl.OutputBufferLength;
 
             DPRINT("DriverIoControl. IOCTL_KMTEST_GET_TESTS, outlen=%lu\n",
-                IoStackLocation->Parameters.DeviceIoControl.OutputBufferLength);
+                     IoStackLocation->Parameters.DeviceIoControl.OutputBufferLength);
 
             for (TestEntry = TestList; TestEntry->TestName; ++TestEntry)
             {
@@ -350,14 +348,14 @@ static
             Length = IoStackLocation->Parameters.DeviceIoControl.OutputBufferLength - Remaining;
             break;
         }
-    case IOCTL_KMTEST_RUN_TEST:
+        case IOCTL_KMTEST_RUN_TEST:
         {
             ANSI_STRING TestName;
             PCKMT_TEST TestEntry;
 
             DPRINT("DriverIoControl. IOCTL_KMTEST_RUN_TEST, inlen=%lu, outlen=%lu\n",
-                IoStackLocation->Parameters.DeviceIoControl.InputBufferLength,
-                IoStackLocation->Parameters.DeviceIoControl.OutputBufferLength);
+                     IoStackLocation->Parameters.DeviceIoControl.InputBufferLength,
+                     IoStackLocation->Parameters.DeviceIoControl.OutputBufferLength);
             TestName.Length = TestName.MaximumLength = (USHORT)min(IoStackLocation->Parameters.DeviceIoControl.InputBufferLength, USHRT_MAX);
             TestName.Buffer = Irp->AssociatedIrp.SystemBuffer;
             DPRINT("DriverIoControl. Run test: %Z\n", &TestName);
@@ -384,14 +382,14 @@ static
 
             break;
         }
-    case IOCTL_KMTEST_SET_RESULTBUFFER:
+        case IOCTL_KMTEST_SET_RESULTBUFFER:
         {
             PKMT_DEVICE_EXTENSION DeviceExtension = DeviceObject->DeviceExtension;
 
             DPRINT("DriverIoControl. IOCTL_KMTEST_SET_RESULTBUFFER, buffer=%p, inlen=%lu, outlen=%lu\n",
-                IoStackLocation->Parameters.DeviceIoControl.Type3InputBuffer,
-                IoStackLocation->Parameters.DeviceIoControl.InputBufferLength,
-                IoStackLocation->Parameters.DeviceIoControl.OutputBufferLength);
+                    IoStackLocation->Parameters.DeviceIoControl.Type3InputBuffer,
+                    IoStackLocation->Parameters.DeviceIoControl.InputBufferLength,
+                    IoStackLocation->Parameters.DeviceIoControl.OutputBufferLength);
 
             if (DeviceExtension->Mdl)
             {
@@ -407,8 +405,8 @@ static
             }
 
             DeviceExtension->Mdl = IoAllocateMdl(IoStackLocation->Parameters.DeviceIoControl.Type3InputBuffer,
-                IoStackLocation->Parameters.DeviceIoControl.InputBufferLength,
-                FALSE, FALSE, NULL);
+                                                    IoStackLocation->Parameters.DeviceIoControl.InputBufferLength,
+                                                    FALSE, FALSE, NULL);
             if (!DeviceExtension->Mdl)
             {
                 Status = STATUS_INSUFFICIENT_RESOURCES;
@@ -431,11 +429,11 @@ static
             IoStackLocation->FileObject->FsContext = DeviceExtension->Mdl;
 
             DPRINT("DriverIoControl. ResultBuffer: %ld %ld %ld %ld\n",
-                ResultBuffer->Successes, ResultBuffer->Failures,
-                ResultBuffer->LogBufferLength, ResultBuffer->LogBufferMaxLength);
+                    ResultBuffer->Successes, ResultBuffer->Failures,
+                    ResultBuffer->LogBufferLength, ResultBuffer->LogBufferMaxLength);
             break;
         }
-    case IOCTL_KMTEST_USERMODE_AWAIT_REQ:
+		case IOCTL_KMTEST_USERMODE_AWAIT_REQ:
         {
             PLIST_ENTRY Entry = NULL;
             PKMT_USER_WORK_ENTRY WorkItem = NULL;
@@ -462,8 +460,7 @@ static
             break;
 
         }
-
-    case IOCTL_KMTEST_USERMODE_SEND_RESPONSE: 
+		case IOCTL_KMTEST_USERMODE_SEND_RESPONSE: 
         {
             PLIST_ENTRY Entry = NULL; 
             PKMT_USER_WORK_ENTRY WorkItem = NULL;
@@ -485,12 +482,11 @@ static
             KeSetEvent(&WorkItem->WorkDoneEvent, IO_NO_INCREMENT, FALSE);
             break;
         }
-
-    default:
-        DPRINT1("DriverIoControl. Invalid IoCtl code 0x%08X\n",
-            IoStackLocation->Parameters.DeviceIoControl.IoControlCode);
-        Status = STATUS_INVALID_DEVICE_REQUEST;
-        break;
+        default:
+            DPRINT1("DriverIoControl. Invalid IoCtl code 0x%08X\n",
+                     IoStackLocation->Parameters.DeviceIoControl.IoControlCode);
+            Status = STATUS_INVALID_DEVICE_REQUEST;
+            break;
     }
 
     Irp->IoStatus.Status = Status;
@@ -588,3 +584,4 @@ static VOID KmtCleanUsermodeCallbacks()
     ExFreePoolWithTag(WorkList, 'kroW');
 
 }
+

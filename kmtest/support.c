@@ -1,9 +1,9 @@
 /*
-* PROJECT:         ReactOS kernel-mode tests
-* LICENSE:         GPLv2+ - See COPYING in the top level directory
-* PURPOSE:         Kernel-Mode Test Suite Driver
-* PROGRAMMER:      Thomas Faber <thfabba@gmx.de>
-*/
+ * PROJECT:         ReactOS kernel-mode tests
+ * LICENSE:         GPLv2+ - See COPYING in the top level directory
+ * PURPOSE:         Kernel-Mode Test Suite Driver
+ * PROGRAMMER:      Thomas Faber <thfabba@gmx.de>
+ */
 
 #include <kmt_test.h>
 
@@ -98,56 +98,51 @@ cleanup:
 }
 
 
-
-
 /**
-* @name KmtRunKernelTest
-*
-* Run the specified kernel-mode test part
-*
-* @param TestName
-*        Name of the test to run
-*
-* @return Win32 error code as returned by DeviceIoControl
-*/
+ * @name KmtRunKernelTest
+ *
+ * Run the specified kernel-mode test part
+ *
+ * @param TestName
+ *        Name of the test to run
+ *
+ * @return Win32 error code as returned by DeviceIoControl
+ */
 DWORD
-    KmtRunKernelTest(
+KmtRunKernelTest(
     IN PCSTR TestName)
 {
+    HANDLE CallbackThread = INVALID_HANDLE_VALUE;
     DWORD Error = ERROR_SUCCESS;
-    HANDLE CallbackThread; 
     DWORD BytesRead;
-
-	KmtFinishedTest = FALSE;
-
+    KmtFinishedTest = FALSE;
+    
+    
     CallbackThread = CreateThread(NULL, 0, KmtUserCallbackThread, NULL, 0, NULL);
-
     if (!DeviceIoControl(KmtestHandle, IOCTL_KMTEST_RUN_TEST, (PVOID)TestName, (DWORD)strlen(TestName), NULL, 0, &BytesRead, NULL))
         error(Error);
-
+    
     KmtFinishedTest = TRUE;
     CloseHandle(CallbackThread);
     return Error;
 }
-
-
 
 static WCHAR TestServiceName[MAX_PATH];
 static SC_HANDLE TestServiceHandle;
 static HANDLE TestDeviceHandle;
 
 /**
-* @name KmtLoadDriver
-*
-* Load the specified special-purpose driver (create/start the service)
-*
-* @param ServiceName
-*        Name of the driver service (Kmtest- prefix will be added automatically)
-* @param RestartIfRunning
-*        TRUE to stop and restart the service if it is already running
-*/
+ * @name KmtLoadDriver
+ *
+ * Load the specified special-purpose driver (create/start the service)
+ *
+ * @param ServiceName
+ *        Name of the driver service (Kmtest- prefix will be added automatically)
+ * @param RestartIfRunning
+ *        TRUE to stop and restart the service if it is already running
+ */
 VOID
-    KmtLoadDriver(
+KmtLoadDriver(
     IN PCWSTR ServiceName,
     IN BOOLEAN RestartIfRunning)
 {
@@ -170,12 +165,12 @@ VOID
 }
 
 /**
-* @name KmtUnloadDriver
-*
-* Unload special-purpose driver (stop the service)
-*/
+ * @name KmtUnloadDriver
+ *
+ * Unload special-purpose driver (stop the service)
+ */
 VOID
-    KmtUnloadDriver(VOID)
+KmtUnloadDriver(VOID)
 {
     DWORD Error = ERROR_SUCCESS;
 
@@ -189,12 +184,12 @@ VOID
 }
 
 /**
-* @name KmtOpenDriver
-*
-* Open special-purpose driver (acquire a device handle)
-*/
+ * @name KmtOpenDriver
+ *
+ * Open special-purpose driver (acquire a device handle)
+ */
 VOID
-    KmtOpenDriver(VOID)
+KmtOpenDriver(VOID)
 {
     DWORD Error = ERROR_SUCCESS;
     WCHAR DevicePath[MAX_PATH];
@@ -215,12 +210,12 @@ VOID
 }
 
 /**
-* @name KmtCloseDriver
-*
-* Close special-purpose driver (close device handle)
-*/
+ * @name KmtCloseDriver
+ *
+ * Close special-purpose driver (close device handle)
+ */
 VOID
-    KmtCloseDriver(VOID)
+KmtCloseDriver(VOID)
 {
     DWORD Error = ERROR_SUCCESS;
 
@@ -235,16 +230,16 @@ VOID
 }
 
 /**
-* @name KmtSendToDriver
-*
-* Unload special-purpose driver (stop the service)
-*
-* @param ControlCode
-*
-* @return Win32 error code as returned by DeviceIoControl
-*/
+ * @name KmtSendToDriver
+ *
+ * Unload special-purpose driver (stop the service)
+ *
+ * @param ControlCode
+ *
+ * @return Win32 error code as returned by DeviceIoControl
+ */
 DWORD
-    KmtSendToDriver(
+KmtSendToDriver(
     IN DWORD ControlCode)
 {
     DWORD BytesRead;
@@ -258,17 +253,17 @@ DWORD
 }
 
 /**
-* @name KmtSendStringToDriver
-*
-* Unload special-purpose driver (stop the service)
-*
-* @param ControlCode
-* @param String
-*
-* @return Win32 error code as returned by DeviceIoControl
-*/
+ * @name KmtSendStringToDriver
+ *
+ * Unload special-purpose driver (stop the service)
+ *
+ * @param ControlCode
+ * @param String
+ *
+ * @return Win32 error code as returned by DeviceIoControl
+ */
 DWORD
-    KmtSendStringToDriver(
+KmtSendStringToDriver(
     IN DWORD ControlCode,
     IN PCSTR String)
 {
@@ -283,17 +278,17 @@ DWORD
 }
 
 /**
-* @name KmtSendBufferToDriver
-*
-* @param ControlCode
-* @param Buffer
-* @param InLength
-* @param OutLength
-*
-* @return Win32 error code as returned by DeviceIoControl
-*/
+ * @name KmtSendBufferToDriver
+ *
+ * @param ControlCode
+ * @param Buffer
+ * @param InLength
+ * @param OutLength
+ *
+ * @return Win32 error code as returned by DeviceIoControl
+ */
 DWORD
-    KmtSendBufferToDriver(
+KmtSendBufferToDriver(
     IN DWORD ControlCode,
     IN OUT PVOID Buffer OPTIONAL,
     IN DWORD InLength,
