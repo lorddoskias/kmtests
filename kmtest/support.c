@@ -40,40 +40,29 @@ KmtUserCallbackThread(LPVOID Unused)
     //avoid a deadlock shitty deadlock. For more info http://www.osronline.com/showthread.cfm?link=230782
     LocalKmtHandle = CreateFile(KMTEST_DEVICE_PATH, GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
     
-    while(!KmtFinishedTest) {
-
+    while (!KmtFinishedTest) 
+    {
         if (DeviceIoControl(LocalKmtHandle, IOCTL_KMTEST_USERMODE_AWAIT_REQ, NULL, 0,  &OutputBuffer, sizeof(OutputBuffer), &BytesReturned, NULL)) 
         {
-            switch(OutputBuffer.OperationType) 
+            switch (OutputBuffer.OperationType) 
             {
-            case QueryVirtualMemory:
+                case QueryVirtualMemory:
                 { 
-                    Response  = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(MEMORY_BASIC_INFORMATION));
-                    if (NULL == Response) 
-                    {
+                    Response = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(MEMORY_BASIC_INFORMATION));
+                    if (Response == NULL) 
                         error_goto(Error, cleanup);
-
-                    }
 
                     UserReturned = VirtualQuery(OutputBuffer.Parameters, Response, sizeof(MEMORY_BASIC_INFORMATION));
-                    if (0 == UserReturned) 
-                    {
+                    if (UserReturned == 0) 
                         error_goto(Error, cleanup);
-
-                    }
 
                     if (!DeviceIoControl(LocalKmtHandle, IOCTL_KMTEST_USERMODE_SEND_RESPONSE, Response, sizeof(MEMORY_BASIC_INFORMATION), NULL, 0, NULL, NULL))
-                    {
-
                         error_goto(Error, cleanup);
-
-                    }
 
                     HeapFree(GetProcessHeap(),  0, Response);
                     break;
                 }    
-
-            default: 
+                default: 
                 {
                     printf("UNRECOGNISED USER-MODE CALLBACK REQUEST\n");
                     break;
