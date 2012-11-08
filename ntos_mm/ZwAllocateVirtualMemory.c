@@ -331,6 +331,7 @@ START_TEST(ZwAllocateVirtualMemory)
         if(NULL != Test) {
             MemInfo = Test;
         DbgPrint("AllocBase %p Prot: %x State: %x\n", MemInfo->AllocationBase, MemInfo->Protect, MemInfo->State);
+        ExFreePoolWithTag(Test, 'pseR');
         }
         
 

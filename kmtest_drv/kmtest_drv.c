@@ -1,3 +1,4 @@
+
 /*
 * PROJECT:         ReactOS kernel-mode tests
 * LICENSE:         GPLv2+ - See COPYING in the top level directory
@@ -35,6 +36,7 @@ typedef struct _KMT_USER_WORK_LIST
     KEVENT NewWorkEvent;
 } KMT_USER_WORK_LIST, *PKMT_USER_WORK_LIST;
 
+static VOID KmtCleanUsermodeCallbacks();
 //////////////////////////////////////////////////
 /* Prototypes */
 DRIVER_INITIALIZE DriverEntry;
@@ -151,6 +153,7 @@ static
     UNREFERENCED_PARAMETER(DriverObject);
 
     DPRINT("DriverUnload\n");
+    KmtCleanUsermodeCallbacks();
 
     if (MainDeviceObject)
     {
@@ -437,10 +440,9 @@ static
             PLIST_ENTRY Entry = NULL;
             PKMT_USER_WORK_ENTRY WorkItem = NULL;
 
-            DbgPrint("FIRST\n");
             KeWaitForSingleObject(&WorkList->NewWorkEvent, UserRequest, UserMode, FALSE, NULL);
 
-            DbgPrint("DriverIoControl. IOCTL_KMTEST_USERMODE_AWAIT_REQ, len=%lu\n", IoStackLocation->Parameters.DeviceIoControl.OutputBufferLength);
+            trace("DriverIoControl. IOCTL_KMTEST_USERMODE_AWAIT_REQ, len=%lu\n", IoStackLocation->Parameters.DeviceIoControl.OutputBufferLength);
 
             if(IoStackLocation->Parameters.DeviceIoControl.OutputBufferLength < sizeof(CALLBACK_REQUEST_PACKET)) 
             {
@@ -463,12 +465,8 @@ static
 
     case IOCTL_KMTEST_USERMODE_SEND_RESPONSE: 
         {
-            //copy the response to the head entry 
-
             PLIST_ENTRY Entry = NULL; 
             PKMT_USER_WORK_ENTRY WorkItem = NULL;
-
-            DbgPrint("SECOND\n");
 
             Entry = WorkList->ListHead.Flink;
             WorkItem = CONTAINING_RECORD(Entry, KMT_USER_WORK_ENTRY, ListEntry);
@@ -504,17 +502,17 @@ static
 }
 
 //Enqueus a request to the usermode callback queue and blocks until the work is finished.
-PVOID KmtUserModeCallback(CallbackOperation Operation, PVOID Parameters) 
+PVOID KmtUserModeCallback(IN CallbackOperation Operation, IN PVOID Parameters) 
 {
-    PKMT_USER_WORK_ENTRY WorkEntry = NULL;
     PVOID Result = NULL;
+
     PAGED_CODE();
-    DbgPrint("in usermode callback \n");
     switch(Operation) {
 
     case QueryVirtualMemory: 
         {
             PLIST_ENTRY Entry = NULL;
+            PKMT_USER_WORK_ENTRY WorkEntry = NULL;
 
             WorkEntry = ExAllocatePoolWithTag(PagedPool, sizeof(KMT_USER_WORK_ENTRY), 'ekrW');
             
@@ -524,25 +522,29 @@ PVOID KmtUserModeCallback(CallbackOperation Operation, PVOID Parameters)
             }
             
             KeInitializeEvent(&WorkEntry->WorkDoneEvent, SynchronizationEvent, FALSE);
+            
             WorkEntry->Request.OperationType = Operation;
             WorkEntry->Request.Parameters = Parameters;
+            WorkEntry->Response = NULL;
 
             ExAcquireFastMutex(&WorkList->Lock);
             InsertTailList(&WorkList->ListHead, &WorkEntry->ListEntry);
             ExReleaseFastMutex(&WorkList->Lock);
 
             KeSetEvent(&WorkList->NewWorkEvent, IO_NO_INCREMENT, FALSE);
-            //await to be awoken by the usermode threads
-            DbgPrint("Awaiting to be awoken\n");
+           
             KeWaitForSingleObject(&WorkEntry->WorkDoneEvent, Executive, UserMode, FALSE, NULL);
+
+            WorkEntry = NULL; //pointer reuse
 
             ExAcquireFastMutex(&WorkList->Lock);
             Entry = RemoveHeadList(&WorkList->ListHead);
             ExReleaseFastMutex(&WorkList->Lock);
 
-            Result = (PKMT_USER_WORK_ENTRY)CONTAINING_RECORD(Entry, KMT_USER_WORK_ENTRY, ListEntry)->Response;
-
-            ExFreePoolWithTag(Entry, 'ekrW');
+            WorkEntry = (PKMT_USER_WORK_ENTRY)CONTAINING_RECORD(Entry, KMT_USER_WORK_ENTRY, ListEntry);
+            Result = WorkEntry->Response;
+            
+            ExFreePoolWithTag(WorkEntry, 'ekrW');
             break;
         }
 
@@ -555,4 +557,34 @@ PVOID KmtUserModeCallback(CallbackOperation Operation, PVOID Parameters)
     }
 
     return Result;
+}
+
+static VOID KmtCleanUsermodeCallbacks() 
+{
+    PAGED_CODE();
+
+    if(!IsListEmpty(&WorkList->ListHead)) 
+    {
+        PLIST_ENTRY Entry = WorkList->ListHead.Flink;
+
+        while(Entry != &WorkList->ListHead) 
+        {
+            PLIST_ENTRY EntryCopy;
+
+            PKMT_USER_WORK_ENTRY WorkEntry = (PKMT_USER_WORK_ENTRY)CONTAINING_RECORD(Entry, KMT_USER_WORK_ENTRY, ListEntry);
+            if(WorkEntry->Response != NULL)
+            {
+                ExFreePoolWithTag(WorkEntry->Response, 'pseR');
+            }
+
+            EntryCopy = Entry;
+            Entry = Entry->Flink;
+            
+            ExFreePoolWithTag(EntryCopy, 'ekrW');
+
+        }
+    }
+
+    ExFreePoolWithTag(WorkList, 'kroW');
+
 }
