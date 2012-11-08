@@ -475,7 +475,7 @@ DriverIoControl(
             WorkItem = CONTAINING_RECORD(Entry, KMT_USER_WORK_ENTRY, ListEntry);
             WorkItem->Response = ExAllocatePoolWithTag(PagedPool, IoStackLocation->Parameters.DeviceIoControl.InputBufferLength, 'pseR');
 
-            if ( WorkItem->Response == NULL ) 
+            if (WorkItem->Response == NULL) 
             {
                 Status = STATUS_INSUFFICIENT_RESOURCES;
                 Length = 0;
@@ -519,7 +519,7 @@ PVOID KmtUserModeCallback(IN CallbackOperation Operation, IN PVOID Parameters)
 
             WorkEntry = ExAllocatePoolWithTag(PagedPool, sizeof(KMT_USER_WORK_ENTRY), 'ekrW');
             
-            if ( WorkEntry == NULL ) 
+            if (WorkEntry == NULL) 
             {
                 break;
             }
@@ -574,7 +574,7 @@ static VOID KmtCleanUsermodeCallbacks()
     {
         PLIST_ENTRY Entry = WorkList->ListHead.Flink;
 
-        while(Entry != &WorkList->ListHead) 
+        while (Entry != &WorkList->ListHead) 
         {
             PLIST_ENTRY EntryCopy;
 

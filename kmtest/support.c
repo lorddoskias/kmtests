@@ -41,33 +41,32 @@ KmtUserCallbackThread(LPVOID Unused)
     LocalKmtHandle = CreateFile(KMTEST_DEVICE_PATH, GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
     
     while(!KmtFinishedTest) {
-        
-        if(DeviceIoControl(LocalKmtHandle, IOCTL_KMTEST_USERMODE_AWAIT_REQ, NULL, 0,  &OutputBuffer, sizeof(OutputBuffer), &BytesReturned, NULL)) 
+
+        if (DeviceIoControl(LocalKmtHandle, IOCTL_KMTEST_USERMODE_AWAIT_REQ, NULL, 0,  &OutputBuffer, sizeof(OutputBuffer), &BytesReturned, NULL)) 
         {
             switch(OutputBuffer.OperationType) 
             {
             case QueryVirtualMemory:
                 { 
-
                     Response  = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(MEMORY_BASIC_INFORMATION));
-                    if(NULL == Response) 
+                    if (NULL == Response) 
                     {
                         error_goto(Error, cleanup);
-                        
+
                     }
 
                     UserReturned = VirtualQuery(OutputBuffer.Parameters, Response, sizeof(MEMORY_BASIC_INFORMATION));
-                    if(0 == UserReturned) 
+                    if (0 == UserReturned) 
                     {
                         error_goto(Error, cleanup);
-                        
+
                     }
 
-                    if(!DeviceIoControl(LocalKmtHandle, IOCTL_KMTEST_USERMODE_SEND_RESPONSE, Response, sizeof(MEMORY_BASIC_INFORMATION), NULL, 0, NULL, NULL))
+                    if (!DeviceIoControl(LocalKmtHandle, IOCTL_KMTEST_USERMODE_SEND_RESPONSE, Response, sizeof(MEMORY_BASIC_INFORMATION), NULL, 0, NULL, NULL))
                     {
-                        
+
                         error_goto(Error, cleanup);
-                       
+
                     }
 
                     HeapFree(GetProcessHeap(),  0, Response);
@@ -81,7 +80,8 @@ KmtUserCallbackThread(LPVOID Unused)
                 }
 
             }
-        } else 
+        } 
+        else 
         {
             error_goto(Error, cleanup);
         }
@@ -89,7 +89,7 @@ KmtUserCallbackThread(LPVOID Unused)
 
 
 cleanup:
-    if(LocalKmtHandle != INVALID_HANDLE_VALUE) 
+    if (LocalKmtHandle != INVALID_HANDLE_VALUE) 
     {
         CloseHandle(LocalKmtHandle);
     }
