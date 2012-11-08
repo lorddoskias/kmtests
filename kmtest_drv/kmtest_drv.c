@@ -433,23 +433,28 @@ DriverIoControl(
                     ResultBuffer->LogBufferLength, ResultBuffer->LogBufferMaxLength);
             break;
         }
-		case IOCTL_KMTEST_USERMODE_AWAIT_REQ:
+        case IOCTL_KMTEST_USERMODE_AWAIT_REQ:
         {
             PLIST_ENTRY Entry = NULL;
             PKMT_USER_WORK_ENTRY WorkItem = NULL;
 
-            KeWaitForSingleObject(&WorkList->NewWorkEvent, UserRequest, UserMode, FALSE, NULL);
+            Status = KeWaitForSingleObject(&WorkList->NewWorkEvent, UserRequest, UserMode, FALSE, NULL);
+            if (Status == STATUS_USER_APC || Status == STATUS_KERNEL_APC)
+            {
+                break;
+            }
 
             trace("DriverIoControl. IOCTL_KMTEST_USERMODE_AWAIT_REQ, len=%lu\n", IoStackLocation->Parameters.DeviceIoControl.OutputBufferLength);
 
-            if(IoStackLocation->Parameters.DeviceIoControl.OutputBufferLength < sizeof(CALLBACK_REQUEST_PACKET)) 
+            if (IoStackLocation->Parameters.DeviceIoControl.OutputBufferLength < sizeof(CALLBACK_REQUEST_PACKET)) 
             {
                 Status = STATUS_INVALID_BUFFER_SIZE;
                 Length = 0;
                 break;
             }
 
-            //the list cannot be empty since access is serialized and we have just been notified.
+            ASSERT(!IsListEmpty(&WorkList->ListHead));
+
             Entry = WorkList->ListHead.Flink;
             WorkItem = CONTAINING_RECORD(Entry, KMT_USER_WORK_ENTRY, ListEntry);
 
@@ -457,10 +462,11 @@ DriverIoControl(
             Status = STATUS_SUCCESS;
             Length = sizeof(CALLBACK_REQUEST_PACKET);
 
+
             break;
 
         }
-		case IOCTL_KMTEST_USERMODE_SEND_RESPONSE: 
+        case IOCTL_KMTEST_USERMODE_SEND_RESPONSE: 
         {
             PLIST_ENTRY Entry = NULL; 
             PKMT_USER_WORK_ENTRY WorkItem = NULL;
@@ -507,6 +513,7 @@ PVOID KmtUserModeCallback(IN CallbackOperation Operation, IN PVOID Parameters)
 
     case QueryVirtualMemory: 
         {
+            NTSTATUS Status;
             PLIST_ENTRY Entry = NULL;
             PKMT_USER_WORK_ENTRY WorkEntry = NULL;
 
@@ -529,7 +536,11 @@ PVOID KmtUserModeCallback(IN CallbackOperation Operation, IN PVOID Parameters)
 
             KeSetEvent(&WorkList->NewWorkEvent, IO_NO_INCREMENT, FALSE);
            
-            KeWaitForSingleObject(&WorkEntry->WorkDoneEvent, Executive, UserMode, FALSE, NULL);
+            Status = KeWaitForSingleObject(&WorkEntry->WorkDoneEvent, Executive, UserMode, FALSE, NULL);
+            if (Status == STATUS_USER_APC || Status == STATUS_KERNEL_APC)
+            {
+                break;
+            }
 
             WorkEntry = NULL; //pointer reuse
 
@@ -537,7 +548,7 @@ PVOID KmtUserModeCallback(IN CallbackOperation Operation, IN PVOID Parameters)
             Entry = RemoveHeadList(&WorkList->ListHead);
             ExReleaseFastMutex(&WorkList->Lock);
 
-            WorkEntry = (PKMT_USER_WORK_ENTRY)CONTAINING_RECORD(Entry, KMT_USER_WORK_ENTRY, ListEntry);
+            WorkEntry = CONTAINING_RECORD(Entry, KMT_USER_WORK_ENTRY, ListEntry);
             Result = WorkEntry->Response;
             
             ExFreePoolWithTag(WorkEntry, 'ekrW');
