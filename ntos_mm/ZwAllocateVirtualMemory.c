@@ -324,15 +324,13 @@ START_TEST(ZwAllocateVirtualMemory)
         PVOID Test = NULL;
         
         SIZE_T RegionSize = 200;
-    //
-    //    //////////////////////////////////////////////////////////////////////////
-    //    //Normal operation
-    //    //////////////////////////////////////////////////////////////////////////
+        PMEMORY_BASIC_INFORMATION MemInfo;
         Status = ZwAllocateVirtualMemory(NtCurrentProcess(), &Base, 0, &RegionSize, MEM_COMMIT, PAGE_READWRITE);
         DbgPrint("Sending usermodecallback request for base: %p\n", Base);
         Test = KmtUserModeCallback(QueryVirtualMemory, Base);
         if(NULL != Test) {
-        DbgPrint("TEST IS %p\n", Test);
+            MemInfo = Test;
+        DbgPrint("AllocBase %p Prot: %x State: %x\n", MemInfo->AllocationBase, MemInfo->Protect, MemInfo->State);
         }
         
 
