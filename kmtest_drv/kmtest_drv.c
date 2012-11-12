@@ -47,12 +47,12 @@ __drv_dispatchType(IRP_MJ_CLOSE)
 static DRIVER_DISPATCH DriverClose;
 __drv_dispatchType(IRP_MJ_DEVICE_CONTROL)
 static DRIVER_DISPATCH DriverIoControl;
-static VOID KmtCleanUsermodeCallbacks();
+static VOID KmtCleanUsermodeCallbacks(VOID);
 
 /* Globals */
 static PDEVICE_OBJECT MainDeviceObject;
 PDRIVER_OBJECT KmtDriverObject = NULL;
-PKMT_USER_WORK_LIST WorkList = NULL;
+static KMT_USER_WORK_LIST WorkList = {0};
 
 /* Entry */
 /**
@@ -112,15 +112,10 @@ DriverEntry(
     DriverObject->MajorFunction[IRP_MJ_DEVICE_CONTROL] = DriverIoControl;
 
 	/* Init the usermode callback structure */
-    WorkList = (PKMT_USER_WORK_LIST) ExAllocatePoolWithTag(NonPagedPool, sizeof(KMT_USER_WORK_LIST), 'kroW');
-    if (WorkList == NULL) 
-    {
-        goto cleanup;
-    }
 
-    ExInitializeFastMutex(&WorkList->Lock);
-    KeInitializeEvent(&WorkList->NewWorkEvent, SynchronizationEvent, FALSE);
-    InitializeListHead(&WorkList->ListHead);
+    ExInitializeFastMutex(&WorkList.Lock);
+    KeInitializeEvent(&WorkList.NewWorkEvent, NotificationEvent, FALSE);
+    InitializeListHead(&WorkList.ListHead);
 	
 cleanup:
     if (MainDeviceObject && !NT_SUCCESS(Status))
@@ -435,16 +430,17 @@ DriverIoControl(
         }
         case IOCTL_KMTEST_USERMODE_AWAIT_REQ:
         {
-            PLIST_ENTRY Entry = NULL;
-            PKMT_USER_WORK_ENTRY WorkItem = NULL;
+            PLIST_ENTRY Entry;
+            PKMT_USER_WORK_ENTRY WorkItem;
 
-            Status = KeWaitForSingleObject(&WorkList->NewWorkEvent, UserRequest, UserMode, FALSE, NULL);
+            Status = KeWaitForSingleObject(&WorkList.NewWorkEvent, UserRequest, UserMode, FALSE, NULL);
+            KeResetEvent(&WorkList.NewWorkEvent);
             if (Status == STATUS_USER_APC || Status == STATUS_KERNEL_APC)
             {
                 break;
             }
 
-            trace("DriverIoControl. IOCTL_KMTEST_USERMODE_AWAIT_REQ, len=%lu\n", IoStackLocation->Parameters.DeviceIoControl.OutputBufferLength);
+            DPRINT1("DriverIoControl. IOCTL_KMTEST_USERMODE_AWAIT_REQ, len=%lu\n", IoStackLocation->Parameters.DeviceIoControl.OutputBufferLength);
 
             if (IoStackLocation->Parameters.DeviceIoControl.OutputBufferLength < sizeof(CALLBACK_REQUEST_PACKET)) 
             {
@@ -453,25 +449,25 @@ DriverIoControl(
                 break;
             }
 
-            ASSERT(!IsListEmpty(&WorkList->ListHead));
+            ASSERT(!IsListEmpty(&WorkList.ListHead));
 
-            Entry = WorkList->ListHead.Flink;
+            Entry = WorkList.ListHead.Flink;
             WorkItem = CONTAINING_RECORD(Entry, KMT_USER_WORK_ENTRY, ListEntry);
 
             RtlCopyMemory(Irp->AssociatedIrp.SystemBuffer, &WorkItem->Request, sizeof(CALLBACK_REQUEST_PACKET));
             Status = STATUS_SUCCESS;
             Length = sizeof(CALLBACK_REQUEST_PACKET);
 
-
+            
             break;
 
         }
         case IOCTL_KMTEST_USERMODE_SEND_RESPONSE: 
         {
-            PLIST_ENTRY Entry = NULL; 
-            PKMT_USER_WORK_ENTRY WorkItem = NULL;
+            PLIST_ENTRY Entry; 
+            PKMT_USER_WORK_ENTRY WorkItem;
 
-            Entry = WorkList->ListHead.Flink;
+            Entry = WorkList.ListHead.Flink;
             WorkItem = CONTAINING_RECORD(Entry, KMT_USER_WORK_ENTRY, ListEntry);
             WorkItem->Response = ExAllocatePoolWithTag(PagedPool, IoStackLocation->Parameters.DeviceIoControl.InputBufferLength, 'pseR');
 
@@ -524,17 +520,17 @@ PVOID KmtUserModeCallback(IN CALLBACK_INFORMATION_CLASS Operation, IN PVOID Para
                 break;
             }
             
-            KeInitializeEvent(&WorkEntry->WorkDoneEvent, SynchronizationEvent, FALSE);
+            KeInitializeEvent(&WorkEntry->WorkDoneEvent, NotificationEvent, FALSE);
             
             WorkEntry->Request.OperationType = Operation;
             WorkEntry->Request.Parameters = Parameters;
             WorkEntry->Response = NULL;
 
-            ExAcquireFastMutex(&WorkList->Lock);
-            InsertTailList(&WorkList->ListHead, &WorkEntry->ListEntry);
-            ExReleaseFastMutex(&WorkList->Lock);
+            ExAcquireFastMutex(&WorkList.Lock);
+            InsertTailList(&WorkList.ListHead, &WorkEntry->ListEntry);
+            ExReleaseFastMutex(&WorkList.Lock);
 
-            KeSetEvent(&WorkList->NewWorkEvent, IO_NO_INCREMENT, FALSE);
+            KeSetEvent(&WorkList.NewWorkEvent, IO_NO_INCREMENT, FALSE);
            
             Status = KeWaitForSingleObject(&WorkEntry->WorkDoneEvent, Executive, UserMode, FALSE, NULL);
             if (Status == STATUS_USER_APC || Status == STATUS_KERNEL_APC)
@@ -544,9 +540,9 @@ PVOID KmtUserModeCallback(IN CALLBACK_INFORMATION_CLASS Operation, IN PVOID Para
 
             WorkEntry = NULL; //pointer reuse
 
-            ExAcquireFastMutex(&WorkList->Lock);
-            Entry = RemoveHeadList(&WorkList->ListHead);
-            ExReleaseFastMutex(&WorkList->Lock);
+            ExAcquireFastMutex(&WorkList.Lock);
+            Entry = RemoveHeadList(&WorkList.ListHead);
+            ExReleaseFastMutex(&WorkList.Lock);
 
             WorkEntry = CONTAINING_RECORD(Entry, KMT_USER_WORK_ENTRY, ListEntry);
             Result = WorkEntry->Response;
@@ -557,7 +553,7 @@ PVOID KmtUserModeCallback(IN CALLBACK_INFORMATION_CLASS Operation, IN PVOID Para
 
     default: 
         {
-            trace("UNRECOGNISED USERMODE CALLBACK\n");
+            DPRINT1("UNRECOGNISED USERMODE CALLBACK\n");
             break;
         }
 
@@ -566,15 +562,16 @@ PVOID KmtUserModeCallback(IN CALLBACK_INFORMATION_CLASS Operation, IN PVOID Para
     return Result;
 }
 
-static VOID KmtCleanUsermodeCallbacks() 
+static VOID KmtCleanUsermodeCallbacks(VOID) 
 {
     PAGED_CODE();
 
-    if(!IsListEmpty(&WorkList->ListHead)) 
+    ExAcquireFastMutex(&WorkList.Lock);
+    if(!IsListEmpty(&WorkList.ListHead)) 
     {
-        PLIST_ENTRY Entry = WorkList->ListHead.Flink;
+        PLIST_ENTRY Entry = WorkList.ListHead.Flink;
 
-        while (Entry != &WorkList->ListHead) 
+        while (Entry != &WorkList.ListHead) 
         {
             PLIST_ENTRY EntryCopy;
 
@@ -584,15 +581,14 @@ static VOID KmtCleanUsermodeCallbacks()
                 ExFreePoolWithTag(WorkEntry->Response, 'pseR');
             }
 
-            EntryCopy = Entry;
             Entry = Entry->Flink;
             
-            ExFreePoolWithTag(EntryCopy, 'ekrW');
+            ExFreePoolWithTag(WorkEntry, 'ekrW');
 
         }
     }
 
-    ExFreePoolWithTag(WorkList, 'kroW');
+    ExReleaseFastMutex(&WorkList.Lock);
 
 }
 
