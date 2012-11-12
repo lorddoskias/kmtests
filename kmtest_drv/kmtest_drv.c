@@ -504,7 +504,7 @@ DriverIoControl(
 }
 
 //Enqueus a request to the usermode callback queue and blocks until the work is finished.
-PVOID KmtUserModeCallback(IN CallbackOperation Operation, IN PVOID Parameters) 
+PVOID KmtUserModeCallback(IN CALLBACK_INFORMATION_CLASS Operation, IN PVOID Parameters) 
 {
     PVOID Result = NULL;
 

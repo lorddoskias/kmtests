@@ -38,6 +38,8 @@ typedef struct
     CHAR LogBuffer[ANYSIZE_ARRAY];
 } KMT_RESULTBUFFER, *PKMT_RESULTBUFFER;
 
+
+#ifndef KMT_STANDALONE_DRIVER
 /////////////////////////////////////////////////////
 // STRUCTURES FOR THE USERMODE CALL BACK MECHANISM
 /////////////////////////////////////////////////////
@@ -45,22 +47,22 @@ typedef struct
 //list of supported operations
 typedef enum _CALLBACK_INFORMATION_CLASS {
     QueryVirtualMemory
-} CallbackOperation;
+} CALLBACK_INFORMATION_CLASS, *PCALLBACK_INFORMATION_CLASS;
 
 //this struct is sent from driver to usermode
 typedef struct _CALLBACK_REQUEST_PACKET {
-    CallbackOperation OperationType;
+    CALLBACK_INFORMATION_CLASS OperationType;
     PVOID Parameters;
 } CALLBACK_REQUEST_PACKET, *PCALLBACK_REQUEST_PACKET;
 
 //this struct is sent from usermode to driver
 typedef struct _CALLBACK_RESPONSE_PACKET {
-    CallbackOperation OperationType;
+    CALLBACK_INFORMATION_CLASS OperationType;
     PVOID Response;
 } CALLBACK_RESPONSE_PACKET, *PCALLBACK_RESPONSE_PACKET;
 
 /////////////////////////////////////////////////////
-
+#endif
 
 
 

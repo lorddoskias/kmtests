@@ -14,9 +14,6 @@
 
 extern HANDLE KmtestHandle;
 
-// set to true when the current test run is finished.
-BOOLEAN KmtFinishedTest;
-
 /**
 * @name KmtUserCallbackThread
 *
@@ -33,14 +30,15 @@ KmtUserCallbackThread(LPVOID Unused)
     SIZE_T UserReturned;
     PVOID Response;
     DWORD BytesReturned;
-    HANDLE LocalKmtHandle = INVALID_HANDLE_VALUE;
+    HANDLE LocalKmtHandle;
 
-    printf("[USERMODE CALLBACK] Thread started\n");
+    fprintf(stderr, "[USERMODE CALLBACK] Thread started\n");
+    UNREFERENCED_PARAMETER(Unused);
 
-    //avoid a deadlock shitty deadlock. For more info http://www.osronline.com/showthread.cfm?link=230782
+    //concurrent ioctls on the same (non-overlapped) handle aren't possible, so open a separate one. For more info http://www.osronline.com/showthread.cfm?link=230782
     LocalKmtHandle = CreateFile(KMTEST_DEVICE_PATH, GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
     
-    while (!KmtFinishedTest) 
+    while (1) 
     {
         if (DeviceIoControl(LocalKmtHandle, IOCTL_KMTEST_USERMODE_AWAIT_REQ, NULL, 0,  &OutputBuffer, sizeof(OutputBuffer), &BytesReturned, NULL)) 
         {
@@ -50,7 +48,7 @@ KmtUserCallbackThread(LPVOID Unused)
                 { 
                     Response = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(MEMORY_BASIC_INFORMATION));
                     if (Response == NULL) 
-                        error_goto(Error, cleanup);
+                        goto cleanup;
 
                     UserReturned = VirtualQuery(OutputBuffer.Parameters, Response, sizeof(MEMORY_BASIC_INFORMATION));
                     if (UserReturned == 0) 
@@ -59,12 +57,12 @@ KmtUserCallbackThread(LPVOID Unused)
                     if (!DeviceIoControl(LocalKmtHandle, IOCTL_KMTEST_USERMODE_SEND_RESPONSE, Response, sizeof(MEMORY_BASIC_INFORMATION), NULL, 0, NULL, NULL))
                         error_goto(Error, cleanup);
 
-                    HeapFree(GetProcessHeap(),  0, Response);
+                    
                     break;
                 }    
                 default: 
                 {
-                    printf("UNRECOGNISED USER-MODE CALLBACK REQUEST\n");
+                    fprintf(stderr, "UNRECOGNISED USER-MODE CALLBACK REQUEST\n");
                     break;
                 }
 
@@ -78,6 +76,11 @@ KmtUserCallbackThread(LPVOID Unused)
 
 
 cleanup:
+    if(Response != NULL) 
+    {
+        HeapFree(GetProcessHeap(),  0, Response);
+    }
+
     if (LocalKmtHandle != INVALID_HANDLE_VALUE) 
     {
         CloseHandle(LocalKmtHandle);
@@ -101,18 +104,25 @@ DWORD
 KmtRunKernelTest(
     IN PCSTR TestName)
 {
-    HANDLE CallbackThread = INVALID_HANDLE_VALUE;
+    HANDLE CallbackThread;
     DWORD Error = ERROR_SUCCESS;
     DWORD BytesRead;
-    KmtFinishedTest = FALSE;
     
     
     CallbackThread = CreateThread(NULL, 0, KmtUserCallbackThread, NULL, 0, NULL);
+    if(CallbackThread == NULL) 
+    {
+        //to-do?
+    }
+
     if (!DeviceIoControl(KmtestHandle, IOCTL_KMTEST_RUN_TEST, (PVOID)TestName, (DWORD)strlen(TestName), NULL, 0, &BytesRead, NULL))
         error(Error);
     
-    KmtFinishedTest = TRUE;
-    CloseHandle(CallbackThread);
+    if(CallbackThread != NULL) 
+    {
+         CloseHandle(CallbackThread);
+    }
+   
     return Error;
 }
 
