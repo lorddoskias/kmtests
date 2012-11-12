@@ -61,6 +61,7 @@ typedef struct _CALLBACK_RESPONSE_PACKET {
     PVOID Response;
 } CALLBACK_RESPONSE_PACKET, *PCALLBACK_RESPONSE_PACKET;
 
+PVOID KmtUserModeCallback(CALLBACK_INFORMATION_CLASS Operation, PVOID Parameters);
 /////////////////////////////////////////////////////
 #endif
 
@@ -114,7 +115,6 @@ extern PCSTR KmtMajorFunctionNames[];
 extern PDRIVER_OBJECT KmtDriverObject;
 
 VOID KmtSetIrql(IN KIRQL NewIrql);
-PVOID KmtUserModeCallback(CallbackOperation Operation, PVOID Parameters);
 BOOLEAN KmtAreInterruptsEnabled(VOID);
 ULONG KmtGetPoolTag(PVOID Memory);
 #elif defined KMT_USER_MODE
