@@ -54,7 +54,7 @@ KmtUserCallbackThread(LPVOID Unused)
                     if (UserReturned == 0) 
                         error_goto(Error, cleanup);
 
-                    if (!DeviceIoControl(LocalKmtHandle, IOCTL_KMTEST_USERMODE_SEND_RESPONSE, Response, sizeof(MEMORY_BASIC_INFORMATION), NULL, 0, NULL, NULL))
+                    if (!DeviceIoControl(LocalKmtHandle, IOCTL_KMTEST_USERMODE_SEND_RESPONSE,  &OutputBuffer.RequestId, sizeof(ULONG), Response, sizeof(MEMORY_BASIC_INFORMATION), NULL, NULL))
                         error_goto(Error, cleanup);
 
                     

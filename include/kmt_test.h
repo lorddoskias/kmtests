@@ -51,12 +51,14 @@ typedef enum _CALLBACK_INFORMATION_CLASS {
 
 //this struct is sent from driver to usermode
 typedef struct _CALLBACK_REQUEST_PACKET {
+    ULONG RequestId;
     CALLBACK_INFORMATION_CLASS OperationType;
     PVOID Parameters;
 } CALLBACK_REQUEST_PACKET, *PCALLBACK_REQUEST_PACKET;
 
 //this struct is sent from usermode to driver
 typedef struct _CALLBACK_RESPONSE_PACKET {
+    ULONG RequestId;
     CALLBACK_INFORMATION_CLASS OperationType;
     PVOID Response;
 } CALLBACK_RESPONSE_PACKET, *PCALLBACK_RESPONSE_PACKET;

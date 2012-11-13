@@ -53,6 +53,7 @@ static VOID KmtCleanUsermodeCallbacks(VOID);
 static PDEVICE_OBJECT MainDeviceObject;
 PDRIVER_OBJECT KmtDriverObject = NULL;
 static KMT_USER_WORK_LIST WorkList = {0};
+static ULONG RequestId = 0;
 
 /* Entry */
 /**
@@ -434,7 +435,8 @@ DriverIoControl(
             PKMT_USER_WORK_ENTRY WorkItem;
 
             Status = KeWaitForSingleObject(&WorkList.NewWorkEvent, UserRequest, UserMode, FALSE, NULL);
-            KeResetEvent(&WorkList.NewWorkEvent);
+            
+
             if (Status == STATUS_USER_APC || Status == STATUS_KERNEL_APC)
             {
                 break;
@@ -458,30 +460,58 @@ DriverIoControl(
             Status = STATUS_SUCCESS;
             Length = sizeof(CALLBACK_REQUEST_PACKET);
 
-            
+            KeResetEvent(&WorkList.NewWorkEvent);
             break;
 
         }
         case IOCTL_KMTEST_USERMODE_SEND_RESPONSE: 
         {
             PLIST_ENTRY Entry; 
-            PKMT_USER_WORK_ENTRY WorkItem;
+            PKMT_USER_WORK_ENTRY WorkEntry;
+            PVOID Response;
+            ULONG ResponseSize = IoStackLocation->Parameters.DeviceIoControl.OutputBufferLength;
 
-            Entry = WorkList.ListHead.Flink;
-            WorkItem = CONTAINING_RECORD(Entry, KMT_USER_WORK_ENTRY, ListEntry);
-            WorkItem->Response = ExAllocatePoolWithTag(PagedPool, IoStackLocation->Parameters.DeviceIoControl.InputBufferLength, 'pseR');
 
-            if (WorkItem->Response == NULL) 
+            ASSERT(IoStackLocation->Parameters.DeviceIoControl.InputBufferLength == sizeof(ULONG));
+            ASSERT(ResponseSize != 0);
+
+            Response = MmGetSystemAddressForMdlSafe(Irp->MdlAddress, NormalPagePriority);
+            if(Response == NULL) 
             {
                 Status = STATUS_INSUFFICIENT_RESOURCES;
-                Length = 0;
                 break;
             }
 
-            RtlCopyMemory(WorkItem->Response, Irp->AssociatedIrp.SystemBuffer, IoStackLocation->Parameters.DeviceIoControl.InputBufferLength);
-            Status = STATUS_SUCCESS;
-            Length = IoStackLocation->Parameters.DeviceIoControl.InputBufferLength;
-            KeSetEvent(&WorkItem->WorkDoneEvent, IO_NO_INCREMENT, FALSE);
+            ExAcquireFastMutex(&WorkList.Lock);
+
+            Entry = WorkList.ListHead.Flink;
+
+            while (Entry != &WorkList.ListHead) 
+            {
+
+                WorkEntry = (PKMT_USER_WORK_ENTRY)CONTAINING_RECORD(Entry, KMT_USER_WORK_ENTRY, ListEntry);
+                if(WorkEntry->Request.RequestId == *((PULONG)Irp->AssociatedIrp.SystemBuffer))
+                {
+                    WorkEntry->Response = ExAllocatePoolWithTag(PagedPool, ResponseSize, 'pseR');
+
+                    if (WorkEntry->Response == NULL) 
+                    {
+                        Status = STATUS_INSUFFICIENT_RESOURCES;
+                        break;
+                    }
+
+                    RtlCopyMemory(WorkEntry->Response, Response, ResponseSize);
+                    KeSetEvent(&WorkEntry->WorkDoneEvent, IO_NO_INCREMENT, FALSE);
+                    Status = STATUS_SUCCESS;
+                    Length = IoStackLocation->Parameters.DeviceIoControl.InputBufferLength;
+                    break;
+                }
+
+                Entry = Entry->Flink;
+
+            }
+
+            ExReleaseFastMutex(&WorkList.Lock);           
             break;
         }
         default:
@@ -522,6 +552,7 @@ PVOID KmtUserModeCallback(IN CALLBACK_INFORMATION_CLASS Operation, IN PVOID Para
             
             KeInitializeEvent(&WorkEntry->WorkDoneEvent, NotificationEvent, FALSE);
             
+            WorkEntry->Request.RequestId = RequestId++;
             WorkEntry->Request.OperationType = Operation;
             WorkEntry->Request.Parameters = Parameters;
             WorkEntry->Response = NULL;
@@ -573,7 +604,6 @@ static VOID KmtCleanUsermodeCallbacks(VOID)
 
         while (Entry != &WorkList.ListHead) 
         {
-            PLIST_ENTRY EntryCopy;
 
             PKMT_USER_WORK_ENTRY WorkEntry = (PKMT_USER_WORK_ENTRY)CONTAINING_RECORD(Entry, KMT_USER_WORK_ENTRY, ListEntry);
             if(WorkEntry->Response != NULL)
