@@ -564,18 +564,16 @@ PVOID KmtUserModeCallback(IN CALLBACK_INFORMATION_CLASS Operation, IN PVOID Para
             KeSetEvent(&WorkList.NewWorkEvent, IO_NO_INCREMENT, FALSE);
            
             Status = KeWaitForSingleObject(&WorkEntry->WorkDoneEvent, Executive, UserMode, FALSE, NULL);
+
             if (Status == STATUS_USER_APC || Status == STATUS_KERNEL_APC)
             {
                 break;
             }
 
-            WorkEntry = NULL; //pointer reuse
-
             ExAcquireFastMutex(&WorkList.Lock);
-            Entry = RemoveHeadList(&WorkList.ListHead);
+            RemoveEntryList(&WorkEntry->ListEntry);
             ExReleaseFastMutex(&WorkList.Lock);
 
-            WorkEntry = CONTAINING_RECORD(Entry, KMT_USER_WORK_ENTRY, ListEntry);
             Result = WorkEntry->Response;
             
             ExFreePoolWithTag(WorkEntry, 'ekrW');
@@ -592,6 +590,7 @@ PVOID KmtUserModeCallback(IN CALLBACK_INFORMATION_CLASS Operation, IN PVOID Para
 
     return Result;
 }
+
 
 static VOID KmtCleanUsermodeCallbacks(VOID) 
 {
