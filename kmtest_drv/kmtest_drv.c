@@ -529,7 +529,10 @@ DriverIoControl(
 }
 
 //Enqueue a request to the usermode callback queue and blocks until the work is finished.
-PVOID KmtUserModeCallback(IN CALLBACK_INFORMATION_CLASS Operation, IN PVOID Parameters) 
+PVOID 
+KmtUserModeCallback(
+    IN CALLBACK_INFORMATION_CLASS Operation, 
+    IN PVOID Parameters) 
 {
     PVOID Result = NULL;
 
@@ -594,8 +597,9 @@ PVOID KmtUserModeCallback(IN CALLBACK_INFORMATION_CLASS Operation, IN PVOID Para
     return Result;
 }
 
-
-static VOID KmtCleanUsermodeCallbacks(VOID) 
+static 
+VOID 
+KmtCleanUsermodeCallbacks(VOID) 
 {
     PAGED_CODE();
 
@@ -607,7 +611,7 @@ static VOID KmtCleanUsermodeCallbacks(VOID)
         while (Entry != &WorkList.ListHead) 
         {
 
-            PKMT_USER_WORK_ENTRY WorkEntry = (PKMT_USER_WORK_ENTRY)CONTAINING_RECORD(Entry, KMT_USER_WORK_ENTRY, ListEntry);
+            PKMT_USER_WORK_ENTRY WorkEntry = CONTAINING_RECORD(Entry, KMT_USER_WORK_ENTRY, ListEntry);
             if (WorkEntry->Response != NULL)
             {
                 ExFreePoolWithTag(WorkEntry->Response, 'pseR');

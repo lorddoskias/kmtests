@@ -22,7 +22,8 @@ extern HANDLE KmtestHandle;
 *
 * @return Win32 error code as returned by DeviceIoControl/HeapAlloc/VirtualQuery
 */
-DWORD WINAPI 
+DWORD 
+WINAPI 
 KmtUserCallbackThread(LPVOID Unused) 
 { 
     DWORD Error = ERROR_SUCCESS;
