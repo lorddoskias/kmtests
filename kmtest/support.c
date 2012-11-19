@@ -24,7 +24,7 @@ extern HANDLE KmtestHandle;
 */
 DWORD 
 WINAPI 
-KmtUserCallbackThread(LPVOID Unused) 
+KmtUserCallbackThread(PVOID Unused) 
 { 
     DWORD Error = ERROR_SUCCESS;
     CALLBACK_REQUEST_PACKET OutputBuffer;
