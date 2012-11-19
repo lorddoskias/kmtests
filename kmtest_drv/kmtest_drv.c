@@ -466,7 +466,6 @@ DriverIoControl(
             PLIST_ENTRY Entry; 
             PKMT_USER_WORK_ENTRY WorkEntry;
             PVOID Response;
-            BOOLEAN MutexAcquired = FALSE;
             ULONG ResponseSize = IoStackLocation->Parameters.DeviceIoControl.OutputBufferLength;
 
             if (IoStackLocation->Parameters.DeviceIoControl.InputBufferLength == sizeof(ULONG) && ResponseSize != 0) 
@@ -479,7 +478,6 @@ DriverIoControl(
                 }
 
                 ExAcquireFastMutex(&WorkList.Lock);
-                MutexAcquired = TRUE;
 
                 Entry = WorkList.ListHead.Flink;
 
@@ -507,10 +505,10 @@ DriverIoControl(
                     Entry = Entry->Flink;
 
                 }
+
+                ExReleaseFastMutex(&WorkList.Lock);
             }
-
-
-            if (MutexAcquired) ExReleaseFastMutex(&WorkList.Lock);           
+           
             break;
         }
         default:
