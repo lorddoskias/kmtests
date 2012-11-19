@@ -75,7 +75,7 @@ KmtUserCallbackThread(LPVOID Unused)
 
 
 cleanup:
-    if(Response != NULL) 
+    if (Response != NULL) 
     {
         HeapFree(GetProcessHeap(),  0, Response);
     }
@@ -109,7 +109,7 @@ KmtRunKernelTest(
     
     
     CallbackThread = CreateThread(NULL, 0, KmtUserCallbackThread, NULL, 0, NULL);
-    if(CallbackThread == NULL) 
+    if (CallbackThread == NULL) 
     {
         //to-do?
     }
@@ -117,7 +117,7 @@ KmtRunKernelTest(
     if (!DeviceIoControl(KmtestHandle, IOCTL_KMTEST_RUN_TEST, (PVOID)TestName, (DWORD)strlen(TestName), NULL, 0, &BytesRead, NULL))
         error(Error);
     
-    if(CallbackThread != NULL) 
+    if (CallbackThread != NULL) 
     {
          CloseHandle(CallbackThread);
     }

@@ -470,10 +470,10 @@ DriverIoControl(
             BOOLEAN MutexAcquired = FALSE;
             ULONG ResponseSize = IoStackLocation->Parameters.DeviceIoControl.OutputBufferLength;
 
-            if(IoStackLocation->Parameters.DeviceIoControl.InputBufferLength == sizeof(ULONG) && ResponseSize != 0) 
+            if (IoStackLocation->Parameters.DeviceIoControl.InputBufferLength == sizeof(ULONG) && ResponseSize != 0) 
             {
                 Response = MmGetSystemAddressForMdlSafe(Irp->MdlAddress, NormalPagePriority);
-                if(Response == NULL) 
+                if (Response == NULL) 
                 {
                     Status = STATUS_INSUFFICIENT_RESOURCES;
                     break;
@@ -488,7 +488,7 @@ DriverIoControl(
                 {
 
                     WorkEntry = (PKMT_USER_WORK_ENTRY)CONTAINING_RECORD(Entry, KMT_USER_WORK_ENTRY, ListEntry);
-                    if(WorkEntry->Request.RequestId == *((PULONG)Irp->AssociatedIrp.SystemBuffer))
+                    if (WorkEntry->Request.RequestId == *((PULONG)Irp->AssociatedIrp.SystemBuffer))
                     {
                         WorkEntry->Response = ExAllocatePoolWithTag(PagedPool, ResponseSize, 'pseR');
 
@@ -511,7 +511,7 @@ DriverIoControl(
             }
 
 
-            if(MutexAcquired) ExReleaseFastMutex(&WorkList.Lock);           
+            if (MutexAcquired) ExReleaseFastMutex(&WorkList.Lock);           
             break;
         }
         default:
@@ -600,7 +600,7 @@ static VOID KmtCleanUsermodeCallbacks(VOID)
     PAGED_CODE();
 
     ExAcquireFastMutex(&WorkList.Lock);
-    if(!IsListEmpty(&WorkList.ListHead)) 
+    if (!IsListEmpty(&WorkList.ListHead)) 
     {
         PLIST_ENTRY Entry = WorkList.ListHead.Flink;
 
@@ -608,7 +608,7 @@ static VOID KmtCleanUsermodeCallbacks(VOID)
         {
 
             PKMT_USER_WORK_ENTRY WorkEntry = (PKMT_USER_WORK_ENTRY)CONTAINING_RECORD(Entry, KMT_USER_WORK_ENTRY, ListEntry);
-            if(WorkEntry->Response != NULL)
+            if (WorkEntry->Response != NULL)
             {
                 ExFreePoolWithTag(WorkEntry->Response, 'pseR');
             }
