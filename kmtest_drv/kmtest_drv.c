@@ -433,7 +433,6 @@ DriverIoControl(
             PKMT_USER_WORK_ENTRY WorkItem;
 
             Status = KeWaitForSingleObject(&WorkList.NewWorkEvent, UserRequest, UserMode, FALSE, NULL);
-            
 
             if (Status == STATUS_USER_APC || Status == STATUS_KERNEL_APC)
             {
@@ -487,7 +486,7 @@ DriverIoControl(
                 while (Entry != &WorkList.ListHead) 
                 {
 
-                    WorkEntry = (PKMT_USER_WORK_ENTRY)CONTAINING_RECORD(Entry, KMT_USER_WORK_ENTRY, ListEntry);
+                    WorkEntry = CONTAINING_RECORD(Entry, KMT_USER_WORK_ENTRY, ListEntry);
                     if (WorkEntry->Request.RequestId == *((PULONG)Irp->AssociatedIrp.SystemBuffer))
                     {
                         WorkEntry->Response = ExAllocatePoolWithTag(PagedPool, ResponseSize, 'pseR');
@@ -535,9 +534,11 @@ PVOID KmtUserModeCallback(IN CALLBACK_INFORMATION_CLASS Operation, IN PVOID Para
     PVOID Result = NULL;
 
     PAGED_CODE();
-    switch(Operation) {
 
-    case QueryVirtualMemory: 
+    switch (Operation) 
+    {
+
+        case QueryVirtualMemory: 
         {
             NTSTATUS Status;
             PLIST_ENTRY Entry = NULL;
@@ -547,14 +548,14 @@ PVOID KmtUserModeCallback(IN CALLBACK_INFORMATION_CLASS Operation, IN PVOID Para
             Timeout.QuadPart = Int32x32To64(-10, 1000 * 1000 * 10); //make the timeout 10 seconds relative 
 
             WorkEntry = ExAllocatePoolWithTag(PagedPool, sizeof(KMT_USER_WORK_ENTRY), 'ekrW');
-            
+
             if (WorkEntry == NULL) 
             {
                 break;
             }
-            
+
             KeInitializeEvent(&WorkEntry->WorkDoneEvent, NotificationEvent, FALSE);
-            
+
             WorkEntry->Request.RequestId = RequestId++;
             WorkEntry->Request.OperationType = Operation;
             WorkEntry->Request.Parameters = Parameters;
@@ -565,7 +566,7 @@ PVOID KmtUserModeCallback(IN CALLBACK_INFORMATION_CLASS Operation, IN PVOID Para
             ExReleaseFastMutex(&WorkList.Lock);
 
             KeSetEvent(&WorkList.NewWorkEvent, IO_NO_INCREMENT, FALSE);
-           
+
             Status = KeWaitForSingleObject(&WorkEntry->WorkDoneEvent, Executive, UserMode, FALSE, &Timeout);
 
             if (Status == STATUS_USER_APC || Status == STATUS_KERNEL_APC || Status == STATUS_TIMEOUT)
@@ -578,12 +579,11 @@ PVOID KmtUserModeCallback(IN CALLBACK_INFORMATION_CLASS Operation, IN PVOID Para
             ExReleaseFastMutex(&WorkList.Lock);
 
             Result = WorkEntry->Response;
-            
+
             ExFreePoolWithTag(WorkEntry, 'ekrW');
             break;
         }
-
-    default: 
+        default: 
         {
             DPRINT1("UNRECOGNISED USERMODE CALLBACK\n");
             break;
