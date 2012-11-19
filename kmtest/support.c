@@ -57,7 +57,6 @@ KmtUserCallbackThread(LPVOID Unused)
                     if (!DeviceIoControl(LocalKmtHandle, IOCTL_KMTEST_USERMODE_SEND_RESPONSE,  &OutputBuffer.RequestId, sizeof(ULONG), Response, sizeof(MEMORY_BASIC_INFORMATION), NULL, NULL))
                         error_goto(Error, cleanup);
 
-                    
                     break;
                 }    
                 default: 
