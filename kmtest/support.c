@@ -11,6 +11,7 @@
 #include <kmt_public.h>
 
 #include <assert.h>
+#include <debug.h>
 
 extern HANDLE KmtestHandle;
 
@@ -33,7 +34,7 @@ KmtUserCallbackThread(PVOID Unused)
     DWORD BytesReturned;
     HANDLE LocalKmtHandle;
 
-    fprintf(stderr, "[USERMODE CALLBACK] Thread started\n");
+    
     UNREFERENCED_PARAMETER(Unused);
 
     //concurrent ioctls on the same (non-overlapped) handle aren't possible, so open a separate one. For more info http://www.osronline.com/showthread.cfm?link=230782
@@ -55,14 +56,14 @@ KmtUserCallbackThread(PVOID Unused)
                     if (UserReturned == 0) 
                         error_goto(Error, cleanup);
 
-                    if (!DeviceIoControl(LocalKmtHandle, IOCTL_KMTEST_USERMODE_SEND_RESPONSE,  &OutputBuffer.RequestId, sizeof(ULONG), Response, sizeof(KMT_RESPONSE), NULL, NULL))
+                    if (!DeviceIoControl(LocalKmtHandle, IOCTL_KMTEST_USERMODE_SEND_RESPONSE,  &OutputBuffer.RequestId, sizeof(ULONG), Response, sizeof(KMT_RESPONSE), &BytesReturned, NULL))
                         error_goto(Error, cleanup);
 
                     break;
                 }    
                 default: 
                 {
-                    fprintf(stderr, "UNRECOGNISED USER-MODE CALLBACK REQUEST\n");
+                    DPRINT("UNRECOGNISED USER-MODE CALLBACK REQUEST\n");
                     break;
                 }
 
@@ -86,6 +87,7 @@ cleanup:
         CloseHandle(LocalKmtHandle);
     }
 
+    DPRINT("Callback handler dying! Error code %x", Error);
     return Error;
 }
 

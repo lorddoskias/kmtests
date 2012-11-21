@@ -444,7 +444,6 @@ DriverIoControl(
             if (IoStackLocation->Parameters.DeviceIoControl.OutputBufferLength < sizeof(CALLBACK_REQUEST_PACKET)) 
             {
                 Status = STATUS_INVALID_BUFFER_SIZE;
-                Length = 0;
                 break;
             }
 
@@ -467,6 +466,7 @@ DriverIoControl(
             PKMT_USER_WORK_ENTRY WorkEntry;
             PVOID Response;
             ULONG ResponseSize = IoStackLocation->Parameters.DeviceIoControl.OutputBufferLength;
+            BOOLEAN FoundEntry = FALSE;
 
             if (IoStackLocation->Parameters.DeviceIoControl.InputBufferLength == sizeof(ULONG) && ResponseSize == sizeof(KMT_RESPONSE)) 
             {
@@ -487,6 +487,8 @@ DriverIoControl(
                     WorkEntry = CONTAINING_RECORD(Entry, KMT_USER_WORK_ENTRY, ListEntry);
                     if (WorkEntry->Request.RequestId == *((PULONG)Irp->AssociatedIrp.SystemBuffer))
                     {
+
+                        FoundEntry = TRUE;
                         WorkEntry->Response = ExAllocatePoolWithTag(PagedPool, sizeof(KMT_RESPONSE), 'pseR');
                         if (WorkEntry->Response == NULL)
                         {
@@ -506,6 +508,15 @@ DriverIoControl(
                 }
 
                 ExReleaseFastMutex(&WorkList.Lock);
+
+                if (!FoundEntry) 
+                {
+                    Status = STATUS_OBJECTID_NOT_FOUND;
+                }
+            }
+            else 
+            {
+                Status = STATUS_INVALID_BUFFER_SIZE;
             }
            
             break;
@@ -513,7 +524,7 @@ DriverIoControl(
         default:
             DPRINT1("DriverIoControl. Invalid IoCtl code 0x%08X\n",
                      IoStackLocation->Parameters.DeviceIoControl.IoControlCode);
-            Status = STATUS_INVALID_DEVICE_REQUEST;
+            Status = STATUS_OBJECTID_NOT_FOUND;
             break;
     }
 
@@ -571,6 +582,7 @@ KmtUserModeCallback(
 
             if (Status == STATUS_USER_APC || Status == STATUS_KERNEL_APC || Status == STATUS_TIMEOUT)
             {
+                DbgPrint("Unexpected callback abortion! Reason: %x\n", Status);
                 break;
             }
 
@@ -597,6 +609,7 @@ KmtUserModeCallback(
 VOID
 KmtFreeCallbackResponse(PKMT_RESPONSE Response) 
 {
+    PAGED_CODE();
 
     ExFreePoolWithTag(Response, 'pseR');
 

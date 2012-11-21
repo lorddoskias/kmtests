@@ -59,3 +59,4 @@ rtl/RtlException.c
 rtl/RtlMemory.c
 rtl/RtlSplayTree.c
 rtl/RtlUnicodeString.c
+kmtest_drv/kmtest_drv.aps
