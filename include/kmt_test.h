@@ -49,6 +49,12 @@ typedef enum _CALLBACK_INFORMATION_CLASS {
     QueryVirtualMemory
 } CALLBACK_INFORMATION_CLASS, *PCALLBACK_INFORMATION_CLASS;
 
+typedef union _KMT_RESPONSE {
+
+    MEMORY_BASIC_INFORMATION MemInfo;
+
+} KMT_RESPONSE, *PKMT_RESPONSE;
+
 //this struct is sent from driver to usermode
 typedef struct _CALLBACK_REQUEST_PACKET {
     ULONG RequestId;
@@ -56,14 +62,8 @@ typedef struct _CALLBACK_REQUEST_PACKET {
     PVOID Parameters;
 } CALLBACK_REQUEST_PACKET, *PCALLBACK_REQUEST_PACKET;
 
-//this struct is sent from usermode to driver
-typedef struct _CALLBACK_RESPONSE_PACKET {
-    ULONG RequestId;
-    CALLBACK_INFORMATION_CLASS OperationType;
-    PVOID Response;
-} CALLBACK_RESPONSE_PACKET, *PCALLBACK_RESPONSE_PACKET;
-
-PVOID KmtUserModeCallback(CALLBACK_INFORMATION_CLASS Operation, PVOID Parameters);
+PKMT_RESPONSE KmtUserModeCallback(CALLBACK_INFORMATION_CLASS Operation, PVOID Parameters);
+VOID KmtFreeCallbackResponse(PKMT_RESPONSE Response); 
 /////////////////////////////////////////////////////
 #endif
 

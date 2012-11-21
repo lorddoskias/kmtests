@@ -25,7 +25,7 @@ typedef struct _KMT_USER_WORK_ENTRY
     LIST_ENTRY ListEntry;
     KEVENT WorkDoneEvent;
     CALLBACK_REQUEST_PACKET Request;
-    PCALLBACK_RESPONSE_PACKET Response;
+    PKMT_RESPONSE Response;
 } KMT_USER_WORK_ENTRY, *PKMT_USER_WORK_ENTRY;
 
 typedef struct _KMT_USER_WORK_LIST
@@ -468,7 +468,7 @@ DriverIoControl(
             PVOID Response;
             ULONG ResponseSize = IoStackLocation->Parameters.DeviceIoControl.OutputBufferLength;
 
-            if (IoStackLocation->Parameters.DeviceIoControl.InputBufferLength == sizeof(ULONG) && ResponseSize != 0) 
+            if (IoStackLocation->Parameters.DeviceIoControl.InputBufferLength == sizeof(ULONG) && ResponseSize == sizeof(KMT_RESPONSE)) 
             {
                 Response = MmGetSystemAddressForMdlSafe(Irp->MdlAddress, NormalPagePriority);
                 if (Response == NULL) 
@@ -487,9 +487,8 @@ DriverIoControl(
                     WorkEntry = CONTAINING_RECORD(Entry, KMT_USER_WORK_ENTRY, ListEntry);
                     if (WorkEntry->Request.RequestId == *((PULONG)Irp->AssociatedIrp.SystemBuffer))
                     {
-                        WorkEntry->Response = ExAllocatePoolWithTag(PagedPool, ResponseSize, 'pseR');
-
-                        if (WorkEntry->Response == NULL) 
+                        WorkEntry->Response = ExAllocatePoolWithTag(PagedPool, sizeof(KMT_RESPONSE), 'pseR');
+                        if (WorkEntry->Response == NULL)
                         {
                             Status = STATUS_INSUFFICIENT_RESOURCES;
                             break;
@@ -527,12 +526,12 @@ DriverIoControl(
 }
 
 //Enqueue a request to the usermode callback queue and blocks until the work is finished.
-PVOID 
+PKMT_RESPONSE 
 KmtUserModeCallback(
     IN CALLBACK_INFORMATION_CLASS Operation, 
     IN PVOID Parameters) 
 {
-    PVOID Result = NULL;
+    PKMT_RESPONSE Result = NULL;
 
     PAGED_CODE();
 
@@ -595,6 +594,14 @@ KmtUserModeCallback(
     return Result;
 }
 
+VOID
+KmtFreeCallbackResponse(PKMT_RESPONSE Response) 
+{
+
+    ExFreePoolWithTag(Response, 'pseR');
+
+}
+
 static 
 VOID 
 KmtCleanUsermodeCallbacks(VOID) 
@@ -612,17 +619,14 @@ KmtCleanUsermodeCallbacks(VOID)
             PKMT_USER_WORK_ENTRY WorkEntry = CONTAINING_RECORD(Entry, KMT_USER_WORK_ENTRY, ListEntry);
             if (WorkEntry->Response != NULL)
             {
-                ExFreePoolWithTag(WorkEntry->Response, 'pseR');
+                KmtFreeCallbackResponse(WorkEntry->Response);
             }
 
             Entry = Entry->Flink;
             
             ExFreePoolWithTag(WorkEntry, 'ekrW');
-
         }
     }
 
     ExReleaseFastMutex(&WorkList.Lock);
-
 }
-

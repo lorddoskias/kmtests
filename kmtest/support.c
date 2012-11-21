@@ -29,7 +29,7 @@ KmtUserCallbackThread(PVOID Unused)
     DWORD Error = ERROR_SUCCESS;
     CALLBACK_REQUEST_PACKET OutputBuffer;
     SIZE_T UserReturned;
-    PVOID Response;
+    PKMT_RESPONSE Response;
     DWORD BytesReturned;
     HANDLE LocalKmtHandle;
 
@@ -47,15 +47,15 @@ KmtUserCallbackThread(PVOID Unused)
             {
                 case QueryVirtualMemory:
                 { 
-                    Response = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(MEMORY_BASIC_INFORMATION));
+                    Response = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(KMT_RESPONSE));
                     if (Response == NULL) 
                         goto cleanup;
 
-                    UserReturned = VirtualQuery(OutputBuffer.Parameters, Response, sizeof(MEMORY_BASIC_INFORMATION));
+                    UserReturned = VirtualQuery(OutputBuffer.Parameters, (PMEMORY_BASIC_INFORMATION)Response, sizeof(KMT_RESPONSE));
                     if (UserReturned == 0) 
                         error_goto(Error, cleanup);
 
-                    if (!DeviceIoControl(LocalKmtHandle, IOCTL_KMTEST_USERMODE_SEND_RESPONSE,  &OutputBuffer.RequestId, sizeof(ULONG), Response, sizeof(MEMORY_BASIC_INFORMATION), NULL, NULL))
+                    if (!DeviceIoControl(LocalKmtHandle, IOCTL_KMTEST_USERMODE_SEND_RESPONSE,  &OutputBuffer.RequestId, sizeof(ULONG), Response, sizeof(KMT_RESPONSE), NULL, NULL))
                         error_goto(Error, cleanup);
 
                     break;

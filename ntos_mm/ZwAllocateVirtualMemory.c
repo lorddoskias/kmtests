@@ -321,17 +321,17 @@ START_TEST(ZwAllocateVirtualMemory)
 
         NTSTATUS Status;
         PVOID Base = NULL;
-        PVOID Test = NULL;
+        PKMT_RESPONSE Test = NULL;
         
         SIZE_T RegionSize = 200;
-        PMEMORY_BASIC_INFORMATION MemInfo;
+        
         Status = ZwAllocateVirtualMemory(NtCurrentProcess(), &Base, 0, &RegionSize, MEM_COMMIT, PAGE_READWRITE);
         DbgPrint("Sending usermodecallback request for base: %p\n", Base);
         Test = KmtUserModeCallback(QueryVirtualMemory, Base);
         if(NULL != Test) {
-            MemInfo = Test;
-        DbgPrint("AllocBase %p Prot: %x State: %x\n", MemInfo->AllocationBase, MemInfo->Protect, MemInfo->State);
-        ExFreePoolWithTag(Test, 'pseR');
+            
+        DbgPrint("AllocBase %p Prot: %x State: %x\n", Test->MemInfo.AllocationBase, Test->MemInfo.Protect, Test->MemInfo.State);
+        KmtFreeCallbackResponse(Test);
         }
         
 
