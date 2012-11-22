@@ -12,26 +12,28 @@
 #define _1gb 0x40000000
 #define ROUND_DOWN(n,align) (((ULONG_PTR)n) & ~((align) - 1l))
 #define DEFAULT_ALLOC_SIZE 200
-#define NO_CHECK 1
+#define IGNORE -1
+#define PAGE_NOPROT 0x0 //MEM_RESERVE has this type of "protection"
 
 #define ALLOC_MEMORY_WITH_FREE(ProcessHandle, BaseAddress, ZeroBits, RegionSize, AllocationType, Protect, RetStatus, FreeStatus)   \
-    do {                                                                                                               \
-    Status = ZwAllocateVirtualMemory(ProcessHandle, &BaseAddress, ZeroBits, &RegionSize, AllocationType, Protect);     \
-    ok_eq_hex(Status, RetStatus);                                                                                      \
-    RegionSize = 0;                                                                                                    \
-    Status = ZwFreeVirtualMemory(ProcessHandle, &BaseAddress, &RegionSize, MEM_RELEASE);                               \
-    if(FreeStatus != NO_CHECK) ok_eq_hex(Status, (NTSTATUS)FreeStatus);                                                \
-    BaseAddress = NULL;                                                                                                \
-    RegionSize = DEFAULT_ALLOC_SIZE;                                                                                   \
-    } while(0)                                                                                                         \
+    do {                                                                                                                   \
+        Status = ZwAllocateVirtualMemory(ProcessHandle, &BaseAddress, ZeroBits, &RegionSize, AllocationType, Protect);     \
+        ok_eq_hex(Status, RetStatus);                                                                                      \
+        RegionSize = 0;                                                                                                    \
+        Status = ZwFreeVirtualMemory(ProcessHandle, &BaseAddress, &RegionSize, MEM_RELEASE);                               \
+        if(FreeStatus != IGNORE) ok_eq_hex(Status, (NTSTATUS)FreeStatus);                                                \
+        BaseAddress = NULL;                                                                                                \
+        RegionSize = DEFAULT_ALLOC_SIZE;                                                                                   \
+    } while(0)                                                                                                             \
 
-#define Test_NtQueryVirtualMemory(BaseAddress, AllocationType, ProtectionType)                  \
+#define Test_NtQueryVirtualMemory(BaseAddress, Size, AllocationType, ProtectionType)            \
     do {                                                                                        \
            PKMT_RESPONSE NtQueryTest = KmtUserModeCallback(QueryVirtualMemory, BaseAddress);    \
            if (NtQueryTest != NULL)                                                             \
            {                                                                                    \
                 ok_eq_hex(NtQueryTest->MemInfo.Protect, ProtectionType);                        \
                 ok_eq_hex(NtQueryTest->MemInfo.State, AllocationType);                          \
+                ok_eq_size(NtQueryTest->MemInfo.RegionSize, Size);                              \
                 KmtFreeCallbackResponse(NtQueryTest);                                           \
            }                                                                                    \
     } while(0)                                                                                  \
@@ -133,6 +135,8 @@ static void SimpleErrorChecks(VOID)
     ALLOC_MEMORY_WITH_FREE(NtCurrentProcess(), Base, 0, RegionSize, -1, PAGE_READWRITE, STATUS_INVALID_PARAMETER_5, STATUS_MEMORY_NOT_ALLOCATED);
     ALLOC_MEMORY_WITH_FREE(NtCurrentProcess(), Base, 0, RegionSize,  MEM_COMMIT, PAGE_READWRITE, STATUS_SUCCESS, STATUS_SUCCESS);
     ALLOC_MEMORY_WITH_FREE(NtCurrentProcess(), Base, 0, RegionSize,  MEM_RESERVE, PAGE_READWRITE, STATUS_SUCCESS, STATUS_SUCCESS);
+    ALLOC_MEMORY_WITH_FREE(NtCurrentProcess(), Base, 0, RegionSize,  MEM_RESERVE, PAGE_WRITECOPY, STATUS_INVALID_PAGE_PROTECTION, STATUS_MEMORY_NOT_ALLOCATED);
+    ALLOC_MEMORY_WITH_FREE(NtCurrentProcess(), Base, 0, RegionSize,  MEM_RESERVE, PAGE_EXECUTE_WRITECOPY, STATUS_INVALID_PAGE_PROTECTION, STATUS_MEMORY_NOT_ALLOCATED);
 
     //Memory protection tests
     ALLOC_MEMORY_WITH_FREE(NtCurrentProcess(), Base, 0, RegionSize, (MEM_COMMIT | MEM_RESERVE), 0, STATUS_INVALID_PAGE_PROTECTION, STATUS_MEMORY_NOT_ALLOCATED);
@@ -169,20 +173,19 @@ static NTSTATUS SimpleAllocation(VOID)
     ok_eq_size(RegionSize, PAGE_SIZE);
 
     //////////////////////////////////////////////////////////////////////////
-    // COMMIT AND RESERVE SCENARIO
+    // COMMIT AND RESERVE SCENARIO AND STATE CHANGE
     //////////////////////////////////////////////////////////////////////////
     //reserve and then commit
     Base = NULL;
     RegionSize = DEFAULT_ALLOC_SIZE;
     Status = ZwAllocateVirtualMemory(NtCurrentProcess(), &Base, 0, &RegionSize, MEM_RESERVE, PAGE_READWRITE);
-    Test_NtQueryVirtualMemory(Base, MEM_RESERVE, PAGE_READWRITE);
-    //Why does this succeeds?
-    CheckBufferReadWrite(Base, (PVOID)TestString, 0, STATUS_ACCESS_VIOLATION);
+    Test_NtQueryVirtualMemory(Base, RegionSize, MEM_RESERVE, PAGE_NOPROT);
+    CheckBufferReadWrite(Base, (PVOID)TestString, 200, STATUS_ACCESS_VIOLATION);
     
 
     Status = ZwAllocateVirtualMemory(NtCurrentProcess(), &Base, 0, &RegionSize, MEM_COMMIT, PAGE_READWRITE);
     CheckBufferReadWrite(Base, (PVOID)TestString, 200, STATUS_SUCCESS);
-    Test_NtQueryVirtualMemory(Base, MEM_COMMIT, PAGE_READWRITE);
+    Test_NtQueryVirtualMemory(Base, RegionSize, MEM_COMMIT, PAGE_READWRITE);
 
     RegionSize = 0;
     ZwFreeVirtualMemory(NtCurrentProcess(), &Base, &RegionSize, MEM_RELEASE);
@@ -198,7 +201,7 @@ static NTSTATUS SimpleAllocation(VOID)
         RtlCopyMemory(Base, (PVOID)TestString, 200);
     KmtEndSeh(STATUS_ACCESS_VIOLATION);
 
-    Test_NtQueryVirtualMemory(Base, MEM_COMMIT, PAGE_NOACCESS);
+    Test_NtQueryVirtualMemory(Base, RegionSize, MEM_COMMIT, PAGE_NOACCESS);
     CheckBufferRead(Base, (PVOID)TestString, 200, STATUS_ACCESS_VIOLATION);
 
     RegionSize = 0;
@@ -209,7 +212,7 @@ static NTSTATUS SimpleAllocation(VOID)
         RtlCopyMemory(Base, (PVOID)TestString, 200);
     KmtEndSeh(STATUS_ACCESS_VIOLATION);
 
-    Test_NtQueryVirtualMemory(Base, MEM_COMMIT, PAGE_READONLY);
+    Test_NtQueryVirtualMemory(Base, RegionSize, MEM_COMMIT, PAGE_READONLY);
 
     ok_bool_true(CheckBuffer(Base, 200, 0), "Couldn't read a read-only buffer");
 
@@ -223,12 +226,12 @@ static NTSTATUS SimpleAllocation(VOID)
     Base = NULL;
     ZwAllocateVirtualMemory(NtCurrentProcess(), &Base, 0, &RegionSize, (MEM_COMMIT | MEM_RESERVE), (PAGE_GUARD | PAGE_READWRITE));
 
-    Test_NtQueryVirtualMemory(Base, MEM_COMMIT, (PAGE_GUARD | PAGE_READWRITE));
+    Test_NtQueryVirtualMemory(Base, RegionSize, MEM_COMMIT, (PAGE_GUARD | PAGE_READWRITE));
     KmtStartSeh()
         RtlCopyMemory(Base, (PVOID)TestString, 200);
     KmtEndSeh(STATUS_GUARD_PAGE_VIOLATION);
 
-    Test_NtQueryVirtualMemory(Base, MEM_COMMIT, PAGE_READWRITE);
+    Test_NtQueryVirtualMemory(Base, RegionSize, MEM_COMMIT, PAGE_READWRITE);
 
     KmtStartSeh()
         RtlCopyMemory(Base, (PVOID)TestString, 200);
@@ -237,23 +240,6 @@ static NTSTATUS SimpleAllocation(VOID)
     RegionSize = 0;
     ZwFreeVirtualMemory(NtCurrentProcess(), &Base, &RegionSize, MEM_RELEASE);
 
-
-    //////////////////////////////////////////////////////////////////////////
-    //RESERVE/COMMIT STATE CHANGE 
-    //////////////////////////////////////////////////////////////////////////
-    /*
-    Base = NULL;
-    RegionSize = 1000;
-    
-    ULONG ReturnLength;
-    MEMORY_BASIC_INFORMATION MemInfo = (MEMORY_BASIC_INFORMATION) {0};
-
-    ZwAllocateVirtualMemory(NtCurrentProcess(), &Base, 0, &RegionSize, MEM_COMMIT, PAGE_READWRITE);
-    Status = ZwQueryVirtualMemory(NtCurrentProcess(), Base, 0, &MemInfo, sizeof(MemInfo), &ReturnLength);
-    trace("status is %lx", Status);
-    ok_eq_hex(MemInfo.State, MEM_RESERVE);
-
-    */
     return Status;
 }
 
@@ -274,7 +260,7 @@ static VOID CustomBaseAllocation(VOID)
     ok_eq_hex(Status, STATUS_SUCCESS);
     ok_eq_size(RegionSize, ActualSize);  
     ok_eq_ulong(Base, ActualStartingAddress);  
-    Test_NtQueryVirtualMemory(ActualStartingAddress, MEM_COMMIT, PAGE_READWRITE);
+    Test_NtQueryVirtualMemory(ActualStartingAddress, ActualSize, MEM_COMMIT, PAGE_READWRITE);
 
     // try freeing
     RegionSize = 0;
@@ -301,13 +287,14 @@ static NTSTATUS StressTesting(ULONG AllocationType)
         bases[Index] = (ULONG_PTR)Base;
         if ((Index % 10) == 0)
         {
+            
             if (AllocationType == MEM_COMMIT)
             {
-                CheckBufferReadWrite(Base, (PVOID)&TestString, 200, STATUS_SUCCESS);
+                CheckBufferReadWrite(Base, (PVOID)TestString, 200, STATUS_SUCCESS);             
             }
             else 
             {
-                CheckBufferReadWrite(Base, (PVOID)&TestString, 200, STATUS_ACCESS_VIOLATION);
+                CheckBufferReadWrite(Base, (PVOID)TestString, 200, STATUS_ACCESS_VIOLATION);   
             }
                 
         }
