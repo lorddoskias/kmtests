@@ -77,8 +77,9 @@ static VOID CheckBufferReadWrite(PVOID Destination, const PVOID Source, SIZE_T L
         RtlCopyMemory(Destination, Source, Length);
     KmtEndSeh(ExpectedStatus);
 
-    Match =  CheckBufferRead(Source, Destination, Length, ExpectedStatus);
-    ok_eq_int(Match, Length);
+    Match = CheckBufferRead(Source, Destination, Length, ExpectedStatus);
+    if (ExpectedStatus == STATUS_SUCCESS) ok_eq_int(Match, Length);
+    
 }
 
 
@@ -154,7 +155,7 @@ static NTSTATUS SimpleAllocation(VOID)
     //Normal operation
     //////////////////////////////////////////////////////////////////////////
     Status = ZwAllocateVirtualMemory(NtCurrentProcess(), &Base, 0, &RegionSize, MEM_COMMIT, PAGE_READWRITE);
-    ok_eq_size(RegionSize, 4096); //this should have resulted in a single-page allocation
+    ok_eq_size(RegionSize, 4096);
 
     //check for the zero-filled pages 
     ok_bool_true(CheckBuffer(Base, RegionSize, 0), "The buffer is not zero-filled");
@@ -298,7 +299,19 @@ static NTSTATUS StressTesting(ULONG AllocationType)
         Status = ZwAllocateVirtualMemory(NtCurrentProcess(), &Base, 0, &RegionSize, AllocationType, PAGE_READWRITE);
 
         bases[Index] = (ULONG_PTR)Base;
-        //Test_NtQueryVirtualMemory(Base, AllocationType, PAGE_READWRITE);
+        if ((Index % 10) == 0)
+        {
+            if (AllocationType == MEM_COMMIT)
+            {
+                CheckBufferReadWrite(Base, (PVOID)&TestString, 200, STATUS_SUCCESS);
+            }
+            else 
+            {
+                CheckBufferReadWrite(Base, (PVOID)&TestString, 200, STATUS_ACCESS_VIOLATION);
+            }
+                
+        }
+        
         Base = NULL;
 
     }
