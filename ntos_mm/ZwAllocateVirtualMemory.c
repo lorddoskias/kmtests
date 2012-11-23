@@ -21,7 +21,7 @@
         ok_eq_hex(Status, RetStatus);                                                                                      \
         RegionSize = 0;                                                                                                    \
         Status = ZwFreeVirtualMemory(ProcessHandle, &BaseAddress, &RegionSize, MEM_RELEASE);                               \
-        if(FreeStatus != IGNORE) ok_eq_hex(Status, (NTSTATUS)FreeStatus);                                                \
+        if (FreeStatus != IGNORE) ok_eq_hex(Status, (NTSTATUS)FreeStatus);                                                \
         BaseAddress = NULL;                                                                                                \
         RegionSize = DEFAULT_ALLOC_SIZE;                                                                                   \
     } while(0)                                                                                                             \
@@ -280,7 +280,7 @@ static NTSTATUS StressTesting(ULONG AllocationType)
     PVOID Base = NULL;
     SIZE_T RegionSize = 5 * 1024 * 1024; // 5 megabytes; 
 
-    for(Index = 0; Index < RTL_NUMBER_OF(bases) && NT_SUCCESS(Status); Index++) {
+    for (Index = 0; Index < RTL_NUMBER_OF(bases) && NT_SUCCESS(Status); Index++) {
 
         Status = ZwAllocateVirtualMemory(NtCurrentProcess(), &Base, 0, &RegionSize, AllocationType, PAGE_READWRITE);
 
@@ -310,7 +310,7 @@ static NTSTATUS StressTesting(ULONG AllocationType)
     //free the allocated memory so that we can continue with the tests
     Status = STATUS_SUCCESS;
     Index = 0;
-    while(NT_SUCCESS(Status)) {
+    while (NT_SUCCESS(Status)) {
         RegionSize = 0;
         Status = ZwFreeVirtualMemory(NtCurrentProcess(), (PVOID)&bases[Index], &RegionSize, MEM_RELEASE);
         bases[Index++] = (ULONG_PTR) NULL;
