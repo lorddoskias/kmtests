@@ -21,7 +21,7 @@ typedef struct _TEST_CONTEXT
     ULONG RegionSize;
     ULONG AllocationType;
     ULONG Protect;
-    ULONG_PTR Bases[1024];
+    PVOID Bases[1024];
     SHORT ThreadId;
 } TEST_CONTEXT, *PTEST_CONTEXT;
 
@@ -32,7 +32,7 @@ typedef struct _TEST_CONTEXT
         ok_eq_hex(Status, RetStatus);                                                                                      \
         RegionSize = 0;                                                                                                    \
         Status = ZwFreeVirtualMemory(ProcessHandle, &BaseAddress, &RegionSize, MEM_RELEASE);                               \
-        if (FreeStatus != IGNORE) ok_eq_hex(Status, (NTSTATUS)FreeStatus);                                                 \
+        if (FreeStatus != IGNORE) ok_eq_hex(Status, FreeStatus);                                                           \
         BaseAddress = NULL;                                                                                                \
         RegionSize = DEFAULT_ALLOC_SIZE;                                                                                   \
     } while(0)                                                                                                             \
@@ -285,7 +285,7 @@ static NTSTATUS StressTesting(ULONG AllocationType)
 {
     NTSTATUS Status = STATUS_SUCCESS; 
     NTSTATUS ReturnStatus = STATUS_SUCCESS;
-    static ULONG_PTR bases[1024]; //assume we are going to allocate only 5 gigs. static here means the arrays is not allocated on the stack but in the BSS segment of the driver 
+    static PVOID bases[1024]; //assume we are going to allocate only 5 gigs. static here means the arrays is not allocated on the stack but in the BSS segment of the driver 
     ULONG Index = 0;	
     PVOID Base = NULL;
     SIZE_T RegionSize = 5 * 1024 * 1024; // 5 megabytes; 
@@ -296,7 +296,7 @@ static NTSTATUS StressTesting(ULONG AllocationType)
 
         Status = ZwAllocateVirtualMemory(NtCurrentProcess(), &Base, 0, &RegionSize, AllocationType, PAGE_READWRITE);
 
-        bases[Index] = (ULONG_PTR)Base;
+        bases[Index] = Base;
         if ((Index % 10) == 0)
         {
             
@@ -324,8 +324,8 @@ static NTSTATUS StressTesting(ULONG AllocationType)
     Index = 0;
     while (NT_SUCCESS(Status) && Index < RTL_NUMBER_OF(bases)) {
         RegionSize = 0;
-        Status = ZwFreeVirtualMemory(NtCurrentProcess(), (PVOID)&bases[Index], &RegionSize, MEM_RELEASE);
-        bases[Index++] = (ULONG_PTR) NULL;
+        Status = ZwFreeVirtualMemory(NtCurrentProcess(), &bases[Index], &RegionSize, MEM_RELEASE);
+        bases[Index++] = NULL;
 
     }
 
@@ -353,7 +353,7 @@ static VOID NTAPI  SystemProcessTestWorker(PVOID StartContext)
     {
         Status = ZwAllocateVirtualMemory(NtCurrentProcess(), &Base, 0, &Context->RegionSize, Context->AllocationType, Context->Protect);
 
-        Context->Bases[Index] = (ULONG_PTR)Base;
+        Context->Bases[Index] = Base;
         if ((Index % 10) == 0)
         {
 
@@ -380,7 +380,7 @@ static VOID NTAPI  SystemProcessTestWorker(PVOID StartContext)
     while (NT_SUCCESS(Status) && Index < RTL_NUMBER_OF(Context->Bases)) 
     {
         Context->RegionSize = 0;
-        Status = ZwFreeVirtualMemory(NtCurrentProcess(), (PVOID)&Context->Bases[Index], &Context->RegionSize, MEM_RELEASE);
+        Status = ZwFreeVirtualMemory(NtCurrentProcess(), &Context->Bases[Index], &Context->RegionSize, MEM_RELEASE);
         Context->Bases[Index++] = (ULONG_PTR) NULL;
     }
 
@@ -412,6 +412,8 @@ static VOID SystemProcessTest()
     PTEST_CONTEXT StartContext1;
     PTEST_CONTEXT StartContext2;
 
+    RtlZeroMemory(ThreadObjects, sizeof(ThreadObjects));
+
     StartContext1 = ExAllocatePoolWithTag(NonPagedPool, sizeof(TEST_CONTEXT), 'tXTC');
     StartContext2 = ExAllocatePoolWithTag(NonPagedPool, sizeof(TEST_CONTEXT), 'tXTC');
     if(StartContext1 == NULL || StartContext2 == NULL)
@@ -432,7 +434,7 @@ static VOID SystemProcessTest()
     }
 
     Status = ObReferenceObjectByHandle(Thread1, THREAD_ALL_ACCESS, PsThreadType, KernelMode, &ThreadObjects[0], NULL);
-    if (NT_SUCCESS(Status))
+    if (!NT_SUCCESS(Status))
     {
         trace("error referencing thread1 \n");
         goto cleanup;
@@ -446,7 +448,7 @@ static VOID SystemProcessTest()
     }
 
     Status = ObReferenceObjectByHandle(Thread2, THREAD_ALL_ACCESS, PsThreadType, KernelMode, &ThreadObjects[1], NULL);
-    if (NT_SUCCESS(Status))
+    if (!NT_SUCCESS(Status))
     {
          trace("error referencing thread2 \n");
         goto cleanup;
