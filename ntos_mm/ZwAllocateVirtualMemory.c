@@ -35,7 +35,7 @@ typedef struct _TEST_CONTEXT
         if (FreeStatus != IGNORE) ok_eq_hex(Status, FreeStatus);                                                           \
         BaseAddress = NULL;                                                                                                \
         RegionSize = DEFAULT_ALLOC_SIZE;                                                                                   \
-    } while(0)                                                                                                             \
+    } while (0)                                                                                                             \
 
 #define Test_NtQueryVirtualMemory(BaseAddress, Size, AllocationType, ProtectionType)            \
     do {                                                                                        \
@@ -47,12 +47,14 @@ typedef struct _TEST_CONTEXT
                 ok_eq_size(NtQueryTest->MemInfo.RegionSize, Size);                              \
                 KmtFreeCallbackResponse(NtQueryTest);                                           \
            }                                                                                    \
-    } while(0)                                                                                  \
+    } while (0)                                                                                  \
 
 const char TestString[] = "TheLongBrownFoxJumpedTheWhiteRabbitTheLongBrownFoxJumpedTheWhiteRabbitTheLongBrownFoxJumpedTheWhiteRabbitTheLongBrownFoxJumpedTheWhiteRabbitTheLongBrownFoxJumpedTheWhiteRabbitTheLongBrownFoxJumpedTheW";
 
 
-static BOOLEAN CheckBuffer(PVOID Buffer, SIZE_T Size, UCHAR Value)
+static 
+BOOLEAN 
+CheckBuffer(PVOID Buffer, SIZE_T Size, UCHAR Value)
 {
     PUCHAR Array = Buffer;
     SIZE_T i;
@@ -67,7 +69,9 @@ static BOOLEAN CheckBuffer(PVOID Buffer, SIZE_T Size, UCHAR Value)
     return TRUE;
 }
 
-static SIZE_T CheckBufferRead(PVOID Source, const PVOID Destination, SIZE_T Length, NTSTATUS ExpectedStatus) 
+static 
+SIZE_T 
+CheckBufferRead(PVOID Source, const PVOID Destination, SIZE_T Length, NTSTATUS ExpectedStatus) 
 {
     NTSTATUS ExceptionStatus;
     SIZE_T Match = 0;
@@ -80,7 +84,9 @@ static SIZE_T CheckBufferRead(PVOID Source, const PVOID Destination, SIZE_T Leng
 
 }
 
-static VOID CheckBufferReadWrite(PVOID Destination, const PVOID Source, SIZE_T Length, NTSTATUS ExpectedStatus) 
+static 
+VOID 
+CheckBufferReadWrite(PVOID Destination, const PVOID Source, SIZE_T Length, NTSTATUS ExpectedStatus) 
 {
     //do a little bit of writing/reading to memory
     NTSTATUS ExceptionStatus;
@@ -96,7 +102,9 @@ static VOID CheckBufferReadWrite(PVOID Destination, const PVOID Source, SIZE_T L
 }
 
 
-static void SimpleErrorChecks(VOID) 
+static 
+VOID 
+SimpleErrorChecks(VOID) 
 {
 
     NTSTATUS Status; 
@@ -158,7 +166,9 @@ static void SimpleErrorChecks(VOID)
 }
 
 
-static NTSTATUS SimpleAllocation(VOID) 
+static 
+NTSTATUS 
+SimpleAllocation(VOID) 
 {
 
     NTSTATUS Status;
@@ -256,7 +266,9 @@ static NTSTATUS SimpleAllocation(VOID)
 
 
 
-static VOID CustomBaseAllocation(VOID) 
+static 
+VOID 
+CustomBaseAllocation(VOID) 
 {
 
     NTSTATUS Status;  
@@ -281,7 +293,9 @@ static VOID CustomBaseAllocation(VOID)
 
 }
 
-static NTSTATUS StressTesting(ULONG AllocationType) 
+static 
+NTSTATUS 
+StressTesting(ULONG AllocationType) 
 {
     NTSTATUS Status = STATUS_SUCCESS; 
     NTSTATUS ReturnStatus = STATUS_SUCCESS;
@@ -332,7 +346,10 @@ static NTSTATUS StressTesting(ULONG AllocationType)
     return ReturnStatus;
 }
 
-static VOID NTAPI SystemProcessTestWorker(PVOID StartContext) 
+static 
+VOID 
+NTAPI 
+SystemProcessTestWorker(PVOID StartContext) 
 {
     
    NTSTATUS Status = STATUS_SUCCESS; 
@@ -390,7 +407,9 @@ static VOID NTAPI SystemProcessTestWorker(PVOID StartContext)
 }
 
 
-static VOID KmtInitTestContext(PTEST_CONTEXT Ctx, SHORT ThreadId, ULONG RegionSize, ULONG AllocationType, ULONG Protect)
+static 
+VOID 
+KmtInitTestContext(PTEST_CONTEXT Ctx, SHORT ThreadId, ULONG RegionSize, ULONG AllocationType, ULONG Protect)
 {
     PAGED_CODE();
 
@@ -403,12 +422,14 @@ static VOID KmtInitTestContext(PTEST_CONTEXT Ctx, SHORT ThreadId, ULONG RegionSi
 
 }
 
-static VOID SystemProcessTest() 
+static 
+VOID 
+SystemProcessTest() 
 {
 
     NTSTATUS Status; 
-    HANDLE Thread1; 
-    HANDLE Thread2;
+    HANDLE Thread1 = INVALID_HANDLE_VALUE; 
+    HANDLE Thread2 = INVALID_HANDLE_VALUE;
     PVOID ThreadObjects[2];
     OBJECT_ATTRIBUTES ObjectAttributes;
     PTEST_CONTEXT StartContext1;
@@ -418,7 +439,7 @@ static VOID SystemProcessTest()
 
     StartContext1 = ExAllocatePoolWithTag(NonPagedPool, sizeof(TEST_CONTEXT), 'tXTC');
     StartContext2 = ExAllocatePoolWithTag(NonPagedPool, sizeof(TEST_CONTEXT), 'tXTC');
-    if(StartContext1 == NULL || StartContext2 == NULL)
+    if (StartContext1 == NULL || StartContext2 == NULL)
     {
         trace("Error allocating space for context structs\n");
         goto cleanup;
@@ -456,23 +477,27 @@ static VOID SystemProcessTest()
         goto cleanup;
     }
     
-   KeWaitForMultipleObjects(2, ThreadObjects, WaitAll, UserRequest, UserMode, TRUE, NULL, NULL);
-   //the return reason can be ignored since what follows is cleaning up which should always be executed; 
-
 cleanup:
-    /* FIXME: If the thread 1 has started and thread 2 fails
-       then here we are cleaning absolutely everything and essentially breaking the running thread*/
-    if(StartContext1 != NULL)
+
+    Status = KeWaitForSingleObject(ThreadObjects[0], Executive, KernelMode, FALSE, NULL);
+    if (StartContext1 != NULL && Status != STATUS_USER_APC && Status != STATUS_KERNEL_APC)
         ExFreePoolWithTag(StartContext1, 'tXTC');
 
-    if(StartContext2 != NULL)
+    Status = KeWaitForSingleObject(ThreadObjects[1], Executive, KernelMode, FALSE, NULL);
+    if (StartContext2 != NULL && Status != STATUS_USER_APC && Status != STATUS_KERNEL_APC)
         ExFreePoolWithTag(StartContext2, 'tXTC');
 
-    if(ThreadObjects[0] != NULL)
+    if (ThreadObjects[0] != NULL)
         ObDereferenceObject(ThreadObjects[0]);
 
-    if(ThreadObjects[1] != NULL)
+    if (ThreadObjects[1] != NULL)
         ObDereferenceObject(ThreadObjects[1]);
+
+    if (Thread1 != INVALID_HANDLE_VALUE)
+        ZwClose(Thread1);
+
+    if (Thread2 != INVALID_HANDLE_VALUE)
+        ZwClose(Thread2);
 }
 
 
