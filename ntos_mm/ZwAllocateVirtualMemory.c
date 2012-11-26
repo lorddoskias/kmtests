@@ -15,13 +15,24 @@
 #define IGNORE -1
 #define PAGE_NOPROT 0x0 //MEM_RESERVE has this type of "protection"
 
+typedef struct _TEST_CONTEXT 
+{
+    HANDLE ProcessHandle;
+    ULONG RegionSize;
+    ULONG AllocationType;
+    ULONG Protect;
+    ULONG_PTR Bases[1024];
+    SHORT ThreadId;
+} TEST_CONTEXT, *PTEST_CONTEXT;
+
+
 #define ALLOC_MEMORY_WITH_FREE(ProcessHandle, BaseAddress, ZeroBits, RegionSize, AllocationType, Protect, RetStatus, FreeStatus)   \
     do {                                                                                                                   \
         Status = ZwAllocateVirtualMemory(ProcessHandle, &BaseAddress, ZeroBits, &RegionSize, AllocationType, Protect);     \
         ok_eq_hex(Status, RetStatus);                                                                                      \
         RegionSize = 0;                                                                                                    \
         Status = ZwFreeVirtualMemory(ProcessHandle, &BaseAddress, &RegionSize, MEM_RELEASE);                               \
-        if (FreeStatus != IGNORE) ok_eq_hex(Status, (NTSTATUS)FreeStatus);                                                \
+        if (FreeStatus != IGNORE) ok_eq_hex(Status, (NTSTATUS)FreeStatus);                                                 \
         BaseAddress = NULL;                                                                                                \
         RegionSize = DEFAULT_ALLOC_SIZE;                                                                                   \
     } while(0)                                                                                                             \
@@ -272,7 +283,6 @@ static VOID CustomBaseAllocation(VOID)
 
 static NTSTATUS StressTesting(ULONG AllocationType) 
 {
-
     NTSTATUS Status = STATUS_SUCCESS; 
     NTSTATUS ReturnStatus = STATUS_SUCCESS;
     static ULONG_PTR bases[1024]; //assume we are going to allocate only 5 gigs. static here means the arrays is not allocated on the stack but in the BSS segment of the driver 
@@ -317,9 +327,152 @@ static NTSTATUS StressTesting(ULONG AllocationType)
 
     }
 
-
     return ReturnStatus;
 }
+
+static VOID SystemProcessTestWorker(PVOID StartContext) 
+{
+    
+   NTSTATUS Status = STATUS_SUCCESS; 
+   PTEST_CONTEXT Context = (PTEST_CONTEXT) StartContext; 
+   ULONG Index = 0;	
+   PVOID Base = NULL;
+
+   PAGED_CODE();
+
+   trace("Thread %d started\n", Context->ThreadId);
+
+   Status = ZwAllocateVirtualMemory(NtCurrentProcess(), &Base, 0, &Context->RegionSize, Context->AllocationType, Context->Protect);
+   ZwFreeVirtualMemory(NtCurrentProcess(), &Base, &Context->RegionSize, MEM_RELEASE);
+
+    while (NT_SUCCESS(Status) && Index < RTL_NUMBER_OF(Context->Bases))
+    {
+        Status = ZwAllocateVirtualMemory(NtCurrentProcess(), &Base, 0, &Context->RegionSize, Context->AllocationType, Context->Protect);
+
+        Context->Bases[Index] = (ULONG_PTR)Base;
+        if ((Index % 10) == 0)
+        {
+
+            if (Context->Protect == MEM_COMMIT)
+            {
+                CheckBufferReadWrite(Base, (PVOID)TestString, 200, STATUS_SUCCESS);             
+            }
+            else 
+            {
+                CheckBufferReadWrite(Base, (PVOID)TestString, 200, STATUS_ACCESS_VIOLATION);   
+            }
+
+        }
+
+        Base = NULL;
+        Index++;
+    }
+
+    trace("[SYSTEM THREAD %d]. Error code %x. Chunks allocated: %d\n", Context->ThreadId, Status, Index);
+
+    //free the allocated memory so that we can continue with the tests
+    Status = STATUS_SUCCESS;
+    Index = 0;
+    while (NT_SUCCESS(Status)) 
+    {
+        Context->RegionSize = 0;
+        Status = ZwFreeVirtualMemory(NtCurrentProcess(), (PVOID)&Context->Bases[Index], &Context->RegionSize, MEM_RELEASE);
+        Context->Bases[Index++] = (ULONG_PTR) NULL;
+    }
+
+    PsTerminateSystemThread(Status);
+}
+
+HANDLE ProcessHandle;
+ULONG RegionSize;
+ULONG AllocationType;
+ULONG Protect;
+
+static VOID KmtInitTestContext(PTEST_CONTEXT Ctx, SHORT ThreadId, ULONG RegionSize, ULONG AllocationType, ULONG Protect)
+{
+    PAGED_CODE();
+
+    {
+        Ctx->AllocationType = AllocationType;
+        Ctx->Protect = Protect;
+        Ctx->RegionSize = RegionSize;
+        Ctx->ThreadId = ThreadId;
+    }
+
+}
+
+static VOID SystemProcessTest() 
+{
+
+    NTSTATUS Status; 
+    HANDLE Thread1; 
+    HANDLE Thread2;
+    PVOID ThreadObjects[2];
+    OBJECT_ATTRIBUTES ObjectAttributes;
+    PTEST_CONTEXT StartContext1;
+    PTEST_CONTEXT StartContext2;
+
+    StartContext1 = ExAllocatePoolWithTag(NonPagedPool, sizeof(TEST_CONTEXT), 'tXTC');
+    StartContext2 = ExAllocatePoolWithTag(NonPagedPool, sizeof(TEST_CONTEXT), 'tXTC');
+    if(StartContext1 == NULL || StartContext2 == NULL)
+    {
+        trace("Error allocating space for context structs\n");
+        goto cleanup;
+    }
+
+    KmtInitTestContext(StartContext1, 1, 1 * 1024 * 1024, MEM_COMMIT, PAGE_READWRITE);
+    KmtInitTestContext(StartContext2, 2, 3 * 1024 * 1024, MEM_COMMIT, PAGE_READWRITE);
+    InitializeObjectAttributes(&ObjectAttributes, NULL, OBJ_KERNEL_HANDLE, NULL, NULL);
+
+    Status = PsCreateSystemThread(&Thread1, THREAD_ALL_ACCESS, &ObjectAttributes, NULL, NULL, (PKSTART_ROUTINE)SystemProcessTestWorker, (PVOID) StartContext1);
+    if (!NT_SUCCESS(Status))
+    {
+        trace("Error creating thread1\n");
+        goto cleanup;
+    }
+
+    Status = ObReferenceObjectByHandle(Thread1, THREAD_ALL_ACCESS, PsThreadType, KernelMode, &ThreadObjects[0], NULL);
+    if (NT_SUCCESS(Status))
+    {
+        trace("error referencing thread1 \n");
+        goto cleanup;
+    }
+
+    Status = PsCreateSystemThread(&Thread2, THREAD_ALL_ACCESS, &ObjectAttributes, NULL, NULL, (PKSTART_ROUTINE)SystemProcessTestWorker, (PVOID) StartContext2);
+    if (!NT_SUCCESS(Status))
+    {
+        trace("Error creating thread2\n");
+        goto cleanup;
+    }
+
+    Status = ObReferenceObjectByHandle(Thread2, THREAD_ALL_ACCESS, PsThreadType, KernelMode, &ThreadObjects[1], NULL);
+    if (NT_SUCCESS(Status))
+    {
+         trace("error referencing thread2 \n");
+        goto cleanup;
+    }
+    
+   KeWaitForMultipleObjects(2, ThreadObjects, WaitAll, UserRequest, UserMode, TRUE, NULL, NULL);
+   //the return reason can be ignored since what follows is cleaning up which should always be executed; 
+
+cleanup:
+    /* FIXME: If the thread 1 has started and thread 2 fails
+       then here we are cleaning absolutely everything and essentially breaking the running thread*/
+    if(StartContext1 != NULL)
+        ExFreePoolWithTag(StartContext1, 'tXTC');
+
+    if(StartContext2 != NULL)
+        ExFreePoolWithTag(StartContext2, 'tXTC');
+
+    if(ThreadObjects[0] != NULL)
+        ObDereferenceObject(ThreadObjects[0]);
+
+    if(ThreadObjects[1] != NULL)
+        ObDereferenceObject(ThreadObjects[1]);
+}
+
+
+
 
 START_TEST(ZwAllocateVirtualMemory) 
 {
@@ -339,5 +492,5 @@ START_TEST(ZwAllocateVirtualMemory)
     Status = StressTesting(MEM_COMMIT);
     ok_eq_hex(Status, STATUS_COMMITMENT_LIMIT);
 
-
+    SystemProcessTest();
 }
