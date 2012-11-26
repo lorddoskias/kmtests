@@ -38,36 +38,32 @@ typedef struct
     CHAR LogBuffer[ANYSIZE_ARRAY];
 } KMT_RESULTBUFFER, *PKMT_RESULTBUFFER;
 
-
 #ifndef KMT_STANDALONE_DRIVER
-/////////////////////////////////////////////////////
-// STRUCTURES FOR THE USERMODE CALL BACK MECHANISM
-/////////////////////////////////////////////////////
+/* usermode call-back mechanism */
 
-//list of supported operations
-typedef enum _CALLBACK_INFORMATION_CLASS {
+/* list of supported operations */
+typedef enum _KMT_CALLBACK_INFORMATION_CLASS
+{
     QueryVirtualMemory
-} CALLBACK_INFORMATION_CLASS, *PCALLBACK_INFORMATION_CLASS;
+} KMT_CALLBACK_INFORMATION_CLASS, *PKMT_CALLBACK_INFORMATION_CLASS;
 
-typedef union _KMT_RESPONSE {
-
+/* TODO: "response" is a little generic */
+typedef union _KMT_RESPONSE
+{
     MEMORY_BASIC_INFORMATION MemInfo;
-
 } KMT_RESPONSE, *PKMT_RESPONSE;
 
-//this struct is sent from driver to usermode
-typedef struct _CALLBACK_REQUEST_PACKET {
+/* this struct is sent from driver to usermode */
+typedef struct _KMT_CALLBACK_REQUEST_PACKET
+{
     ULONG RequestId;
-    CALLBACK_INFORMATION_CLASS OperationType;
+    KMT_CALLBACK_INFORMATION_CLASS OperationClass;
     PVOID Parameters;
-} CALLBACK_REQUEST_PACKET, *PCALLBACK_REQUEST_PACKET;
+} KMT_CALLBACK_REQUEST_PACKET, *PKMT_CALLBACK_REQUEST_PACKET;
 
-PKMT_RESPONSE KmtUserModeCallback(CALLBACK_INFORMATION_CLASS Operation, PVOID Parameters);
-VOID KmtFreeCallbackResponse(PKMT_RESPONSE Response); 
-/////////////////////////////////////////////////////
+PKMT_RESPONSE KmtUserModeCallback(KMT_CALLBACK_INFORMATION_CLASS Operation, PVOID Parameters);
+VOID KmtFreeCallbackResponse(PKMT_RESPONSE Response);
 #endif
-
-
 
 #ifdef KMT_STANDALONE_DRIVER
 #define KMT_KERNEL_MODE

@@ -19,12 +19,12 @@
 #define KMT_DEFINE_TEST_FUNCTIONS
 #include <kmt_test.h>
 
-/* Usermode callback definitions*/
+/* Usermode callback definitions */
 typedef struct _KMT_USER_WORK_ENTRY
 {
     LIST_ENTRY ListEntry;
     KEVENT WorkDoneEvent;
-    CALLBACK_REQUEST_PACKET Request;
+    KMT_CALLBACK_REQUEST_PACKET Request;
     PKMT_RESPONSE Response;
 } KMT_USER_WORK_ENTRY, *PKMT_USER_WORK_ENTRY;
 
@@ -34,7 +34,6 @@ typedef struct _KMT_USER_WORK_LIST
     FAST_MUTEX Lock;
     KEVENT NewWorkEvent;
 } KMT_USER_WORK_LIST, *PKMT_USER_WORK_LIST;
-
 
 /* Prototypes */
 DRIVER_INITIALIZE DriverEntry;
@@ -146,7 +145,9 @@ DriverUnload(
     UNREFERENCED_PARAMETER(DriverObject);
 
     DPRINT("DriverUnload\n");
+
     KmtCleanUsermodeCallbacks();
+
     if (MainDeviceObject)
     {
         PKMT_DEVICE_EXTENSION DeviceExtension = MainDeviceObject->DeviceExtension;
@@ -432,16 +433,15 @@ DriverIoControl(
             PLIST_ENTRY Entry;
             PKMT_USER_WORK_ENTRY WorkItem;
 
+            DPRINT("DriverIoControl. IOCTL_KMTEST_USERMODE_AWAIT_REQ, len=%lu\n",
+                    IoStackLocation->Parameters.DeviceIoControl.OutputBufferLength);
+
+            /* TODO: prevent multiple concurrent invocations */
             Status = KeWaitForSingleObject(&WorkList.NewWorkEvent, UserRequest, UserMode, FALSE, NULL);
-
             if (Status == STATUS_USER_APC || Status == STATUS_KERNEL_APC)
-            {
                 break;
-            }
 
-            DPRINT1("DriverIoControl. IOCTL_KMTEST_USERMODE_AWAIT_REQ, len=%lu\n", IoStackLocation->Parameters.DeviceIoControl.OutputBufferLength);
-
-            if (IoStackLocation->Parameters.DeviceIoControl.OutputBufferLength < sizeof(CALLBACK_REQUEST_PACKET)) 
+            if (IoStackLocation->Parameters.DeviceIoControl.OutputBufferLength < sizeof(KMT_CALLBACK_REQUEST_PACKET))
             {
                 Status = STATUS_INVALID_BUFFER_SIZE;
                 break;
@@ -452,79 +452,73 @@ DriverIoControl(
             Entry = WorkList.ListHead.Flink;
             WorkItem = CONTAINING_RECORD(Entry, KMT_USER_WORK_ENTRY, ListEntry);
 
-            RtlCopyMemory(Irp->AssociatedIrp.SystemBuffer, &WorkItem->Request, sizeof(CALLBACK_REQUEST_PACKET));
+            Length = sizeof(WorkItem->Request);
+            RtlCopyMemory(Irp->AssociatedIrp.SystemBuffer, &WorkItem->Request, Length);
             Status = STATUS_SUCCESS;
-            Length = sizeof(CALLBACK_REQUEST_PACKET);
 
             KeResetEvent(&WorkList.NewWorkEvent);
             break;
 
         }
-        case IOCTL_KMTEST_USERMODE_SEND_RESPONSE: 
+        case IOCTL_KMTEST_USERMODE_SEND_RESPONSE:
         {
-            PLIST_ENTRY Entry; 
+            PLIST_ENTRY Entry;
             PKMT_USER_WORK_ENTRY WorkEntry;
             PVOID Response;
             ULONG ResponseSize = IoStackLocation->Parameters.DeviceIoControl.OutputBufferLength;
-            BOOLEAN FoundEntry = FALSE;
 
-            if (IoStackLocation->Parameters.DeviceIoControl.InputBufferLength == sizeof(ULONG) && ResponseSize == sizeof(KMT_RESPONSE)) 
+            DPRINT("DriverIoControl. IOCTL_KMTEST_USERMODE_SEND_RESPONSE, inlen=%lu, outlen=%lu\n",
+                    IoStackLocation->Parameters.DeviceIoControl.InputBufferLength,
+                    IoStackLocation->Parameters.DeviceIoControl.OutputBufferLength);
+
+            if (IoStackLocation->Parameters.DeviceIoControl.InputBufferLength != sizeof(ULONG) || ResponseSize != sizeof(KMT_RESPONSE))
             {
-                Response = MmGetSystemAddressForMdlSafe(Irp->MdlAddress, NormalPagePriority);
-                if (Response == NULL) 
+                Status = STATUS_INVALID_BUFFER_SIZE;
+                break;
+            }
+
+            /* FIXME: don't misuse the output buffer as an input! */
+            Response = MmGetSystemAddressForMdlSafe(Irp->MdlAddress, NormalPagePriority);
+            if (Response == NULL)
+            {
+                Status = STATUS_INSUFFICIENT_RESOURCES;
+                break;
+            }
+
+            ExAcquireFastMutex(&WorkList.Lock);
+
+            Status = STATUS_OBJECTID_NOT_FOUND;
+
+            Entry = WorkList.ListHead.Flink;
+            while (Entry != &WorkList.ListHead)
+            {
+                WorkEntry = CONTAINING_RECORD(Entry, KMT_USER_WORK_ENTRY, ListEntry);
+                if (WorkEntry->Request.RequestId == *(PULONG)Irp->AssociatedIrp.SystemBuffer)
                 {
-                    Status = STATUS_INSUFFICIENT_RESOURCES;
-                    break;
-                }
-
-                ExAcquireFastMutex(&WorkList.Lock);
-
-                Entry = WorkList.ListHead.Flink;
-
-                while (Entry != &WorkList.ListHead) 
-                {
-
-                    WorkEntry = CONTAINING_RECORD(Entry, KMT_USER_WORK_ENTRY, ListEntry);
-                    if (WorkEntry->Request.RequestId == *((PULONG)Irp->AssociatedIrp.SystemBuffer))
+                    WorkEntry->Response = ExAllocatePoolWithTag(PagedPool, sizeof(KMT_RESPONSE), 'pseR');
+                    if (WorkEntry->Response == NULL)
                     {
-
-                        FoundEntry = TRUE;
-                        WorkEntry->Response = ExAllocatePoolWithTag(PagedPool, sizeof(KMT_RESPONSE), 'pseR');
-                        if (WorkEntry->Response == NULL)
-                        {
-                            Status = STATUS_INSUFFICIENT_RESOURCES;
-                            break;
-                        }
-
-                        RtlCopyMemory(WorkEntry->Response, Response, ResponseSize);
-                        KeSetEvent(&WorkEntry->WorkDoneEvent, IO_NO_INCREMENT, FALSE);
-                        Status = STATUS_SUCCESS;
-                        Length = IoStackLocation->Parameters.DeviceIoControl.InputBufferLength;
+                        Status = STATUS_INSUFFICIENT_RESOURCES;
                         break;
                     }
 
-                    Entry = Entry->Flink;
-
+                    RtlCopyMemory(WorkEntry->Response, Response, ResponseSize);
+                    KeSetEvent(&WorkEntry->WorkDoneEvent, IO_NO_INCREMENT, FALSE);
+                    Status = STATUS_SUCCESS;
+                    break;
                 }
 
-                ExReleaseFastMutex(&WorkList.Lock);
+                Entry = Entry->Flink;
+            }
 
-                if (!FoundEntry) 
-                {
-                    Status = STATUS_OBJECTID_NOT_FOUND;
-                }
-            }
-            else 
-            {
-                Status = STATUS_INVALID_BUFFER_SIZE;
-            }
-           
+            ExReleaseFastMutex(&WorkList.Lock);
+
             break;
         }
         default:
             DPRINT1("DriverIoControl. Invalid IoCtl code 0x%08X\n",
                      IoStackLocation->Parameters.DeviceIoControl.IoControlCode);
-            Status = STATUS_OBJECTID_NOT_FOUND;
+            Status = STATUS_INVALID_DEVICE_REQUEST;
             break;
     }
 
@@ -536,109 +530,111 @@ DriverIoControl(
     return Status;
 }
 
-//Enqueue a request to the usermode callback queue and blocks until the work is finished.
-PKMT_RESPONSE 
+/**
+ * @name KmtUserModeCallback
+ *
+ * Enqueue a request to the usermode callback queue and blocks until the work
+ * is finished.
+ *
+ * @param Operation
+ *        TODO
+ * @param Parameters
+ *        TODO
+ *        TODO: why is this PVOID?
+ *
+ * @return Response from user mode
+ */
+PKMT_RESPONSE
 KmtUserModeCallback(
-    IN CALLBACK_INFORMATION_CLASS Operation, 
-    IN PVOID Parameters) 
+    IN KMT_CALLBACK_INFORMATION_CLASS Operation,
+    IN PVOID Parameters)
 {
-    PKMT_RESPONSE Result = NULL;
+    PKMT_RESPONSE Result;
+    NTSTATUS Status;
+    PKMT_USER_WORK_ENTRY WorkEntry;
+    LARGE_INTEGER Timeout;
 
     PAGED_CODE();
 
-    switch (Operation) 
+    WorkEntry = ExAllocatePoolWithTag(PagedPool, sizeof(KMT_USER_WORK_ENTRY), 'ekrW');
+    if (WorkEntry == NULL)
+        return NULL;
+
+    KeInitializeEvent(&WorkEntry->WorkDoneEvent, NotificationEvent, FALSE);
+    WorkEntry->Request.RequestId = RequestId++;
+    WorkEntry->Request.OperationClass = Operation;
+    WorkEntry->Request.Parameters = Parameters;
+    WorkEntry->Response = NULL;
+
+    ExAcquireFastMutex(&WorkList.Lock);
+    InsertTailList(&WorkList.ListHead, &WorkEntry->ListEntry);
+    ExReleaseFastMutex(&WorkList.Lock);
+
+    KeSetEvent(&WorkList.NewWorkEvent, IO_NO_INCREMENT, FALSE);
+
+    Timeout.QuadPart = -10 * 1000 * 1000 * 10; //wait for 10 seconds
+    Status = KeWaitForSingleObject(&WorkEntry->WorkDoneEvent, Executive, UserMode, FALSE, &Timeout);
+
+    if (Status == STATUS_USER_APC || Status == STATUS_KERNEL_APC || Status == STATUS_TIMEOUT)
     {
-
-        case QueryVirtualMemory: 
-        {
-            NTSTATUS Status;
-            PLIST_ENTRY Entry = NULL;
-            PKMT_USER_WORK_ENTRY WorkEntry = NULL;
-            LARGE_INTEGER Timeout;
-
-            Timeout.QuadPart = Int32x32To64(-10, 1000 * 1000 * 10); //make the timeout 10 seconds relative 
-
-            WorkEntry = ExAllocatePoolWithTag(PagedPool, sizeof(KMT_USER_WORK_ENTRY), 'ekrW');
-
-            if (WorkEntry == NULL) 
-            {
-                break;
-            }
-
-            KeInitializeEvent(&WorkEntry->WorkDoneEvent, NotificationEvent, FALSE);
-
-            WorkEntry->Request.RequestId = RequestId++;
-            WorkEntry->Request.OperationType = Operation;
-            WorkEntry->Request.Parameters = Parameters;
-            WorkEntry->Response = NULL;
-
-            ExAcquireFastMutex(&WorkList.Lock);
-            InsertTailList(&WorkList.ListHead, &WorkEntry->ListEntry);
-            ExReleaseFastMutex(&WorkList.Lock);
-
-            KeSetEvent(&WorkList.NewWorkEvent, IO_NO_INCREMENT, FALSE);
-
-            Status = KeWaitForSingleObject(&WorkEntry->WorkDoneEvent, Executive, UserMode, FALSE, &Timeout);
-
-            if (Status == STATUS_USER_APC || Status == STATUS_KERNEL_APC || Status == STATUS_TIMEOUT)
-            {
-                DbgPrint("Unexpected callback abortion! Reason: %x\n", Status);
-                break;
-            }
-
-            ExAcquireFastMutex(&WorkList.Lock);
-            RemoveEntryList(&WorkEntry->ListEntry);
-            ExReleaseFastMutex(&WorkList.Lock);
-
-            Result = WorkEntry->Response;
-
-            ExFreePoolWithTag(WorkEntry, 'ekrW');
-            break;
-        }
-        default: 
-        {
-            DPRINT1("UNRECOGNISED USERMODE CALLBACK\n");
-            break;
-        }
-
+        DPRINT1("Unexpected callback abortion! Reason: %lx\n", Status);
     }
+
+    ExAcquireFastMutex(&WorkList.Lock);
+    RemoveEntryList(&WorkEntry->ListEntry);
+    ExReleaseFastMutex(&WorkList.Lock);
+
+    Result = WorkEntry->Response;
+
+    ExFreePoolWithTag(WorkEntry, 'ekrW');
 
     return Result;
 }
 
+/**
+ * @name KmtFreeCallbackResponse
+ *
+ * TODO
+ *
+ * @param Response
+ *        TODO
+ */
 VOID
-KmtFreeCallbackResponse(PKMT_RESPONSE Response) 
+KmtFreeCallbackResponse(
+    PKMT_RESPONSE Response)
 {
     PAGED_CODE();
 
     ExFreePoolWithTag(Response, 'pseR');
-
 }
 
-static 
-VOID 
-KmtCleanUsermodeCallbacks(VOID) 
+/**
+ * @name KmtCleanUsermodeCallbacks
+ *
+ * TODO
+ */
+static
+VOID
+KmtCleanUsermodeCallbacks(VOID)
 {
+    PLIST_ENTRY Entry;
+
     PAGED_CODE();
 
     ExAcquireFastMutex(&WorkList.Lock);
-    if (!IsListEmpty(&WorkList.ListHead)) 
+
+    Entry = WorkList.ListHead.Flink;
+    while (Entry != &WorkList.ListHead)
     {
-        PLIST_ENTRY Entry = WorkList.ListHead.Flink;
-
-        while (Entry != &WorkList.ListHead) 
+        PKMT_USER_WORK_ENTRY WorkEntry = CONTAINING_RECORD(Entry, KMT_USER_WORK_ENTRY, ListEntry);
+        if (WorkEntry->Response != NULL)
         {
-
-            PKMT_USER_WORK_ENTRY WorkEntry = CONTAINING_RECORD(Entry, KMT_USER_WORK_ENTRY, ListEntry);
-            if (WorkEntry->Response != NULL)
-            {
-                KmtFreeCallbackResponse(WorkEntry->Response);
-            }
-
-            Entry = Entry->Flink;
-            
-            ExFreePoolWithTag(WorkEntry, 'ekrW');
+            KmtFreeCallbackResponse(WorkEntry->Response);
         }
+
+        Entry = Entry->Flink;
+
+        ExFreePoolWithTag(WorkEntry, 'ekrW');
     }
 
     ExReleaseFastMutex(&WorkList.Lock);
