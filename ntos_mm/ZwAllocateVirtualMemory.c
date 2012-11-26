@@ -332,7 +332,7 @@ static NTSTATUS StressTesting(ULONG AllocationType)
     return ReturnStatus;
 }
 
-static VOID NTAPI  SystemProcessTestWorker(PVOID StartContext) 
+static VOID NTAPI SystemProcessTestWorker(PVOID StartContext) 
 {
     
    NTSTATUS Status = STATUS_SUCCESS; 
@@ -348,7 +348,9 @@ static VOID NTAPI  SystemProcessTestWorker(PVOID StartContext)
 
    Status = ZwAllocateVirtualMemory(NtCurrentProcess(), &Base, 0, &Context->RegionSize, Context->AllocationType, Context->Protect);
    ZwFreeVirtualMemory(NtCurrentProcess(), &Base, &Context->RegionSize, MEM_RELEASE);
+   Base = NULL;
 
+    //if the previous allocation has failed there is no need to do the loop
     while (NT_SUCCESS(Status) && Index < RTL_NUMBER_OF(Context->Bases))
     {
         Status = ZwAllocateVirtualMemory(NtCurrentProcess(), &Base, 0, &Context->RegionSize, Context->AllocationType, Context->Protect);
@@ -357,7 +359,7 @@ static VOID NTAPI  SystemProcessTestWorker(PVOID StartContext)
         if ((Index % 10) == 0)
         {
 
-            if (Context->Protect == MEM_COMMIT)
+            if (Context->AllocationType == MEM_COMMIT)
             {
                 CheckBufferReadWrite(Base, (PVOID)TestString, 200, STATUS_SUCCESS);             
             }
@@ -381,7 +383,7 @@ static VOID NTAPI  SystemProcessTestWorker(PVOID StartContext)
     {
         Context->RegionSize = 0;
         Status = ZwFreeVirtualMemory(NtCurrentProcess(), &Context->Bases[Index], &Context->RegionSize, MEM_RELEASE);
-        Context->Bases[Index++] = (ULONG_PTR) NULL;
+        Context->Bases[Index++] = NULL;
     }
 
     PsTerminateSystemThread(Status);
