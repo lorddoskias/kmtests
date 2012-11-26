@@ -424,21 +424,21 @@ KmtInitTestContext(PTEST_CONTEXT Ctx, SHORT ThreadId, ULONG RegionSize, ULONG Al
 
 static 
 VOID 
-SystemProcessTest() 
+SystemProcessTest(VOID) 
 {
 
     NTSTATUS Status; 
     HANDLE Thread1 = INVALID_HANDLE_VALUE; 
     HANDLE Thread2 = INVALID_HANDLE_VALUE;
-    PVOID ThreadObjects[2];
+    PVOID ThreadObjects[2] = { NULL };
     OBJECT_ATTRIBUTES ObjectAttributes;
     PTEST_CONTEXT StartContext1;
     PTEST_CONTEXT StartContext2;
 
-    RtlZeroMemory(ThreadObjects, sizeof(ThreadObjects));
+    PAGED_CODE();
 
-    StartContext1 = ExAllocatePoolWithTag(NonPagedPool, sizeof(TEST_CONTEXT), 'tXTC');
-    StartContext2 = ExAllocatePoolWithTag(NonPagedPool, sizeof(TEST_CONTEXT), 'tXTC');
+    StartContext1 = ExAllocatePoolWithTag(PagedPool, sizeof(TEST_CONTEXT), 'tXTC');
+    StartContext2 = ExAllocatePoolWithTag(PagedPool, sizeof(TEST_CONTEXT), 'tXTC');
     if (StartContext1 == NULL || StartContext2 == NULL)
     {
         trace("Error allocating space for context structs\n");
@@ -473,18 +473,22 @@ SystemProcessTest()
     Status = ObReferenceObjectByHandle(Thread2, THREAD_ALL_ACCESS, PsThreadType, KernelMode, &ThreadObjects[1], NULL);
     if (!NT_SUCCESS(Status))
     {
-         trace("error referencing thread2 \n");
+        trace("error referencing thread2 \n");
         goto cleanup;
     }
     
 cleanup:
 
-    Status = KeWaitForSingleObject(ThreadObjects[0], Executive, KernelMode, FALSE, NULL);
-    if (StartContext1 != NULL && Status != STATUS_USER_APC && Status != STATUS_KERNEL_APC)
+    if(ThreadObjects[0]) 
+        Status = KeWaitForSingleObject(ThreadObjects[0], Executive, KernelMode, FALSE, NULL);
+
+    if (StartContext1 != NULL)
         ExFreePoolWithTag(StartContext1, 'tXTC');
 
-    Status = KeWaitForSingleObject(ThreadObjects[1], Executive, KernelMode, FALSE, NULL);
-    if (StartContext2 != NULL && Status != STATUS_USER_APC && Status != STATUS_KERNEL_APC)
+    if(ThreadObjects[1]) 
+        Status = KeWaitForSingleObject(ThreadObjects[1], Executive, KernelMode, FALSE, NULL);
+
+    if (StartContext2 != NULL)
         ExFreePoolWithTag(StartContext2, 'tXTC');
 
     if (ThreadObjects[0] != NULL)
