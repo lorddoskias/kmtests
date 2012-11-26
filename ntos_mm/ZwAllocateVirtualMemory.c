@@ -290,6 +290,8 @@ static NTSTATUS StressTesting(ULONG AllocationType)
     PVOID Base = NULL;
     SIZE_T RegionSize = 5 * 1024 * 1024; // 5 megabytes; 
 
+    RtlZeroMemory(bases, sizeof(bases));
+
     for (Index = 0; Index < RTL_NUMBER_OF(bases) && NT_SUCCESS(Status); Index++) {
 
         Status = ZwAllocateVirtualMemory(NtCurrentProcess(), &Base, 0, &RegionSize, AllocationType, PAGE_READWRITE);
@@ -320,7 +322,7 @@ static NTSTATUS StressTesting(ULONG AllocationType)
     //free the allocated memory so that we can continue with the tests
     Status = STATUS_SUCCESS;
     Index = 0;
-    while (NT_SUCCESS(Status)) {
+    while (NT_SUCCESS(Status) && Index < RTL_NUMBER_OF(bases)) {
         RegionSize = 0;
         Status = ZwFreeVirtualMemory(NtCurrentProcess(), (PVOID)&bases[Index], &RegionSize, MEM_RELEASE);
         bases[Index++] = (ULONG_PTR) NULL;
@@ -330,7 +332,7 @@ static NTSTATUS StressTesting(ULONG AllocationType)
     return ReturnStatus;
 }
 
-static VOID SystemProcessTestWorker(PVOID StartContext) 
+static VOID NTAPI  SystemProcessTestWorker(PVOID StartContext) 
 {
     
    NTSTATUS Status = STATUS_SUCCESS; 
@@ -341,6 +343,8 @@ static VOID SystemProcessTestWorker(PVOID StartContext)
    PAGED_CODE();
 
    trace("Thread %d started\n", Context->ThreadId);
+
+   RtlZeroMemory(Context->Bases, sizeof(Context->Bases));
 
    Status = ZwAllocateVirtualMemory(NtCurrentProcess(), &Base, 0, &Context->RegionSize, Context->AllocationType, Context->Protect);
    ZwFreeVirtualMemory(NtCurrentProcess(), &Base, &Context->RegionSize, MEM_RELEASE);
@@ -373,7 +377,7 @@ static VOID SystemProcessTestWorker(PVOID StartContext)
     //free the allocated memory so that we can continue with the tests
     Status = STATUS_SUCCESS;
     Index = 0;
-    while (NT_SUCCESS(Status)) 
+    while (NT_SUCCESS(Status) && Index < RTL_NUMBER_OF(Context->Bases)) 
     {
         Context->RegionSize = 0;
         Status = ZwFreeVirtualMemory(NtCurrentProcess(), (PVOID)&Context->Bases[Index], &Context->RegionSize, MEM_RELEASE);
@@ -383,10 +387,6 @@ static VOID SystemProcessTestWorker(PVOID StartContext)
     PsTerminateSystemThread(Status);
 }
 
-HANDLE ProcessHandle;
-ULONG RegionSize;
-ULONG AllocationType;
-ULONG Protect;
 
 static VOID KmtInitTestContext(PTEST_CONTEXT Ctx, SHORT ThreadId, ULONG RegionSize, ULONG AllocationType, ULONG Protect)
 {
@@ -424,7 +424,7 @@ static VOID SystemProcessTest()
     KmtInitTestContext(StartContext2, 2, 3 * 1024 * 1024, MEM_COMMIT, PAGE_READWRITE);
     InitializeObjectAttributes(&ObjectAttributes, NULL, OBJ_KERNEL_HANDLE, NULL, NULL);
 
-    Status = PsCreateSystemThread(&Thread1, THREAD_ALL_ACCESS, &ObjectAttributes, NULL, NULL, (PKSTART_ROUTINE)SystemProcessTestWorker, (PVOID) StartContext1);
+    Status = PsCreateSystemThread(&Thread1, THREAD_ALL_ACCESS, &ObjectAttributes, NULL, NULL, SystemProcessTestWorker, StartContext1);
     if (!NT_SUCCESS(Status))
     {
         trace("Error creating thread1\n");
@@ -438,7 +438,7 @@ static VOID SystemProcessTest()
         goto cleanup;
     }
 
-    Status = PsCreateSystemThread(&Thread2, THREAD_ALL_ACCESS, &ObjectAttributes, NULL, NULL, (PKSTART_ROUTINE)SystemProcessTestWorker, (PVOID) StartContext2);
+    Status = PsCreateSystemThread(&Thread2, THREAD_ALL_ACCESS, &ObjectAttributes, NULL, NULL, SystemProcessTestWorker, StartContext2);
     if (!NT_SUCCESS(Status))
     {
         trace("Error creating thread2\n");
