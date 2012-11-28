@@ -248,13 +248,13 @@ SimpleAllocation(VOID)
 
     Test_NtQueryVirtualMemory(Base, RegionSize, MEM_COMMIT, (PAGE_GUARD | PAGE_READWRITE));
     KmtStartSeh()
-        RtlCopyMemory(Base, (PVOID)TestString, TestStringSize);
+        RtlCopyMemory(Base, TestString, TestStringSize);
     KmtEndSeh(STATUS_GUARD_PAGE_VIOLATION);
 
     Test_NtQueryVirtualMemory(Base, RegionSize, MEM_COMMIT, PAGE_READWRITE);
 
     KmtStartSeh()
-        RtlCopyMemory(Base, (PVOID)TestString, TestStringSize);
+        RtlCopyMemory(Base, TestString, TestStringSize);
     KmtEndSeh(STATUS_SUCCESS);
     
     RegionSize = 0;
