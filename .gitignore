@@ -1,4 +1,3 @@
-CMakeLists.txt
 example/CMakeLists.txt
 example/Example.c
 example/Example.h

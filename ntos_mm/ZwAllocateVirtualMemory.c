@@ -1,7 +1,7 @@
 /*
 * PROJECT:         ReactOS kernel-mode tests
 * LICENSE:         GPLv2+ - See COPYING in the top level directory
-* PURPOSE:         Kernel-Mode Test Suite Runtime library bit map test
+* PURPOSE:         Kernel-Mode Test Suite ZwAllocateVirtualMemory/ZwFreeVirtualMemory
 * PROGRAMMER:      Nikolay Borisov <nib9@aber.ac.uk>
 */
 
