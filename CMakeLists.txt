@@ -1,4 +1,3 @@
-message(HELLO DOSKIAS)
 include_directories(
     include)
 
