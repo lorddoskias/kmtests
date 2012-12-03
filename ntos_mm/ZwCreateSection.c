@@ -8,8 +8,12 @@
 #include <kmt_test.h>
 
 #define IGNORE -999
+#define _4mb 4194304
 extern const char TestString[];
 extern const SIZE_T TestStringSize;
+
+/* http://picturoku.blogspot.co.uk/2011/07/pointers-for-user-shared-data.html */
+static PKUSER_SHARED_DATA UserSharedData = (PKUSER_SHARED_DATA)0xffdf0000;
 
 #define CREATE_SECTION(Handle, DesiredAccess, Attributes, Size, SectionPageProtection, AllocationAttributes, FileHandle,  RetStatus, CloseRetStatus)  do    \
     {                                                                                                                                                       \
@@ -38,14 +42,14 @@ KmtInitTestFiles(PHANDLE ReadOnlyFile, PHANDLE WriteOnlyFile)
     UCHAR FileData = 0;
 
     //INIT THE READ-ONLY FILE
-    InitializeObjectAttributes(&ObjectAttributes, &FileReadOnly, OBJ_CASE_INSENSITIVE, NULL, NULL);
+    InitializeObjectAttributes(&ObjectAttributes, &FileReadOnly, (OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE), NULL, NULL);
     Status = ZwCreateFile(ReadOnlyFile, ( GENERIC_READ | GENERIC_EXECUTE ), &ObjectAttributes, &IoStatusBlock, NULL, FILE_ATTRIBUTE_NORMAL, FILE_SHARE_READ, FILE_OPEN, FILE_NON_DIRECTORY_FILE, NULL, 0);
     ok_eq_hex(Status, STATUS_SUCCESS);
     ok(*ReadOnlyFile != NULL, "Couldn't acquire READONLY handle\n");
 
     //INIT THE WRITE-ONLY FILE
-    InitializeObjectAttributes(&ObjectAttributes, &FileWriteOnly, OBJ_CASE_INSENSITIVE, NULL, NULL);
-    Status = ZwCreateFile(WriteOnlyFile, GENERIC_WRITE | SYNCHRONIZE, &ObjectAttributes, &IoStatusBlock, NULL, FILE_ATTRIBUTE_NORMAL, FILE_SHARE_READ, FILE_SUPERSEDE, (FILE_NON_DIRECTORY_FILE | FILE_DELETE_ON_CLOSE), NULL, 0);
+    InitializeObjectAttributes(&ObjectAttributes, &FileWriteOnly, (OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE), NULL, NULL);
+    Status = ZwCreateFile(WriteOnlyFile, (GENERIC_WRITE | SYNCHRONIZE), &ObjectAttributes, &IoStatusBlock, NULL, FILE_ATTRIBUTE_NORMAL, FILE_SHARE_READ, FILE_SUPERSEDE, (FILE_NON_DIRECTORY_FILE | FILE_DELETE_ON_CLOSE), NULL, 0);
     ok_eq_hex(Status, STATUS_SUCCESS);
     ok_eq_ulongptr(IoStatusBlock.Information, FILE_CREATED);
     ok(*WriteOnlyFile != NULL, "WriteOnlyFile is NULL\n");
@@ -71,14 +75,17 @@ SimpleErrorChecks(VOID)
     
     OBJECT_ATTRIBUTES ObjectAttributesReadOnly;
     OBJECT_ATTRIBUTES ObjectAttributesWriteOnly;
+    OBJECT_ATTRIBUTES InvalidObjectAttributes;
     LARGE_INTEGER MaximumSize;
 
     UNICODE_STRING SectReadOnly = RTL_CONSTANT_STRING(L"\\BaseNamedObjects\\KmtTestReadSect");
     UNICODE_STRING SectWriteOnly = RTL_CONSTANT_STRING(L"\\BaseNamedObjects\\KmtTestWriteSect");
-    MaximumSize.QuadPart = 200; 
+    UNICODE_STRING InvalidObjectString = RTL_CONSTANT_STRING(L"THIS/IS/INVALID");
+    MaximumSize.QuadPart = TestStringSize; 
 
-    InitializeObjectAttributes(&ObjectAttributesReadOnly, &SectReadOnly, OBJ_CASE_INSENSITIVE, NULL, NULL);
-    InitializeObjectAttributes(&ObjectAttributesWriteOnly, &SectWriteOnly, OBJ_CASE_INSENSITIVE, NULL, NULL);
+    InitializeObjectAttributes(&ObjectAttributesReadOnly, &SectReadOnly, (OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE), NULL, NULL);
+    InitializeObjectAttributes(&ObjectAttributesWriteOnly, &SectWriteOnly, (OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE), NULL, NULL);
+    InitializeObjectAttributes(&InvalidObjectAttributes, &InvalidObjectString, (OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE), NULL, NULL);
 
     //PAGE FILE BACKED SECTION
     //DESIRED ACCESS TESTS
@@ -88,6 +95,7 @@ SimpleErrorChecks(VOID)
 
     //OBJECT ATTRIBUTES 
     CREATE_SECTION(Section, SECTION_ALL_ACCESS, &ObjectAttributesReadOnly, MaximumSize, PAGE_READWRITE, SEC_COMMIT, NULL, STATUS_SUCCESS, STATUS_SUCCESS);
+    CREATE_SECTION(Section, SECTION_ALL_ACCESS, &InvalidObjectAttributes, MaximumSize, PAGE_READWRITE, SEC_COMMIT, NULL, STATUS_OBJECT_PATH_SYNTAX_BAD, STATUS_SUCCESS);
 
     //MAXIMUM SIZE
     MaximumSize.QuadPart = -1;
@@ -95,8 +103,11 @@ SimpleErrorChecks(VOID)
 
     MaximumSize.QuadPart = 0;
     CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_READWRITE, SEC_COMMIT, NULL, STATUS_INVALID_PARAMETER_4, IGNORE);
-
-    MaximumSize.QuadPart = 200;
+   
+    MaximumSize.QuadPart = (_4mb / UserSharedData->LargePageMinimum) * UserSharedData->LargePageMinimum; //4mb 
+    CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_READWRITE, (SEC_LARGE_PAGES | SEC_COMMIT), NULL, STATUS_SUCCESS, STATUS_SUCCESS);
+   
+    MaximumSize.QuadPart = TestStringSize;
 
     //SECTION PAGE PROTECTION
     CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_EXECUTE_READ, SEC_COMMIT, NULL, STATUS_SUCCESS, STATUS_SUCCESS);
@@ -115,16 +126,16 @@ SimpleErrorChecks(VOID)
     CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_READWRITE, (SEC_IMAGE | SEC_COMMIT), NULL, STATUS_INVALID_PARAMETER_6, STATUS_SUCCESS);
     CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_READWRITE, -1, NULL, STATUS_INVALID_PARAMETER_6, STATUS_SUCCESS);
     CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_READWRITE, SEC_LARGE_PAGES, NULL, STATUS_INVALID_PARAMETER_6, STATUS_SUCCESS);
+    CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_READWRITE, (SEC_LARGE_PAGES | SEC_COMMIT), NULL, STATUS_INVALID_PARAMETER_4, STATUS_SUCCESS);
     CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_READWRITE, SEC_NOCACHE, NULL, STATUS_INVALID_PARAMETER_6, STATUS_SUCCESS);
     CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_READWRITE, (SEC_NOCACHE | SEC_RESERVE | SEC_COMMIT), NULL, STATUS_INVALID_PARAMETER_6, STATUS_SUCCESS);
     CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_READWRITE, (SEC_NOCACHE | SEC_COMMIT), NULL, STATUS_SUCCESS, STATUS_SUCCESS);
     CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_READWRITE, (SEC_NOCACHE | SEC_RESERVE), NULL, STATUS_SUCCESS, STATUS_SUCCESS);
-
+    
     //NORMAL FILE-BACKED SECTION
     
     //necessary init
     KmtInitTestFiles(&FileHandleReadOnly, &FileHandleWriteOnly);
-
 
     //DESIRED ACCESS TESTS 
     CREATE_SECTION(Section, SECTION_ALL_ACCESS, &ObjectAttributesReadOnly, MaximumSize, PAGE_READONLY, SEC_COMMIT, FileHandleReadOnly, STATUS_SUCCESS, STATUS_SUCCESS);
@@ -134,7 +145,8 @@ SimpleErrorChecks(VOID)
 
     //Object Attributes
     CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_READONLY, SEC_COMMIT, FileHandleReadOnly, STATUS_SUCCESS, STATUS_SUCCESS);
-   
+    CREATE_SECTION(Section, SECTION_ALL_ACCESS, &InvalidObjectAttributes, MaximumSize, PAGE_READONLY, SEC_COMMIT, FileHandleReadOnly, STATUS_OBJECT_PATH_SYNTAX_BAD, STATUS_SUCCESS);
+
     //MAXIMUM SIZE
     MaximumSize.QuadPart = 100;
     CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_READONLY, SEC_COMMIT, FileHandleReadOnly, STATUS_SUCCESS, STATUS_SUCCESS);
@@ -144,7 +156,6 @@ SimpleErrorChecks(VOID)
     
     MaximumSize.QuadPart = 0;
     CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_READONLY, SEC_COMMIT, FileHandleReadOnly, STATUS_SUCCESS, STATUS_SUCCESS);
-
     
     //PAGE PROTECTION
     CREATE_SECTION(Section, SECTION_ALL_ACCESS, &ObjectAttributesReadOnly, MaximumSize, PAGE_READWRITE, SEC_COMMIT, FileHandleReadOnly, STATUS_INVALID_PAGE_PROTECTION, IGNORE);
@@ -169,5 +180,7 @@ SimpleErrorChecks(VOID)
 
 START_TEST(ZwCreateSection) 
 {
+
     SimpleErrorChecks(); 
+    
 }
