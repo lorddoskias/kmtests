@@ -13,6 +13,8 @@
 #define IGNORE -1
 #define PAGE_NOPROT 0x0 //MEM_RESERVE has this type of "protection"
 
+VOID Test_ZwAllocateVirtualMemory(VOID);
+
 typedef struct _TEST_CONTEXT 
 {
     HANDLE ProcessHandle;
@@ -124,6 +126,11 @@ SimpleErrorChecks(VOID)
 
     Base = (PVOID)((char *)MmSystemRangeStart + 200);
     ALLOC_MEMORY_WITH_FREE(NtCurrentProcess(), Base, 0, RegionSize, (MEM_COMMIT | MEM_RESERVE), PAGE_READWRITE, STATUS_INVALID_PARAMETER_2, STATUS_INVALID_PARAMETER_2);
+
+    /* http://jira.reactos.org/browse/CORE-6814 */
+    RegionSize = 0x1000;
+    Base = Test_ZwAllocateVirtualMemory;
+    ALLOC_MEMORY_WITH_FREE(NtCurrentProcess(), Base, 0, RegionSize, MEM_COMMIT, PAGE_READWRITE, STATUS_CONFLICTING_ADDRESSES, STATUS_MEMORY_NOT_ALLOCATED);
 
     //ZERO BITS TESTS
     ALLOC_MEMORY_WITH_FREE(NtCurrentProcess(), Base, 21, RegionSize, (MEM_COMMIT | MEM_RESERVE), PAGE_READWRITE, STATUS_NO_MEMORY, STATUS_MEMORY_NOT_ALLOCATED);

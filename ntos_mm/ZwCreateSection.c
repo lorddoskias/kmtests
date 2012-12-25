@@ -11,6 +11,10 @@
 #define _4mb 4194304
 extern const char TestString[];
 extern const SIZE_T TestStringSize;
+static UNICODE_STRING FileReadOnly = RTL_CONSTANT_STRING(L"\\SystemRoot\\system32\\ntdll.dll");
+static UNICODE_STRING FileWriteOnly = RTL_CONSTANT_STRING(L"\\SystemRoot\\kmtest-MmSection.txt");
+static OBJECT_ATTRIBUTES NtdllObject;
+static OBJECT_ATTRIBUTES KmtestFileObject;
 
 /* http://picturoku.blogspot.co.uk/2011/07/pointers-for-user-shared-data.html */
 static PKUSER_SHARED_DATA UserSharedData = (PKUSER_SHARED_DATA)0xffdf0000;
@@ -27,29 +31,23 @@ static PKUSER_SHARED_DATA UserSharedData = (PKUSER_SHARED_DATA)0xffdf0000;
         }                                                                                                                                                   \
     } while (0)                                                                                                                                             \
 
-
-
 static 
 VOID
 KmtInitTestFiles(PHANDLE ReadOnlyFile, PHANDLE WriteOnlyFile) 
 {
     NTSTATUS Status;
     LARGE_INTEGER FileOffset;
-    UNICODE_STRING FileReadOnly = RTL_CONSTANT_STRING(L"\\SystemRoot\\system32\\ntdll.dll");
-    UNICODE_STRING FileWriteOnly = RTL_CONSTANT_STRING(L"\\SystemRoot\\kmtest-MmSection.txt");
-    OBJECT_ATTRIBUTES ObjectAttributes;
     IO_STATUS_BLOCK IoStatusBlock;
     UCHAR FileData = 0;
 
     //INIT THE READ-ONLY FILE
-    InitializeObjectAttributes(&ObjectAttributes, &FileReadOnly, (OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE), NULL, NULL);
-    Status = ZwCreateFile(ReadOnlyFile, ( GENERIC_READ | GENERIC_EXECUTE ), &ObjectAttributes, &IoStatusBlock, NULL, FILE_ATTRIBUTE_NORMAL, FILE_SHARE_READ, FILE_OPEN, FILE_NON_DIRECTORY_FILE, NULL, 0);
+    Status = ZwCreateFile(ReadOnlyFile, ( GENERIC_READ | GENERIC_EXECUTE ), &NtdllObject, &IoStatusBlock, NULL, FILE_ATTRIBUTE_NORMAL, FILE_SHARE_READ, FILE_OPEN, FILE_NON_DIRECTORY_FILE, NULL, 0);
     ok_eq_hex(Status, STATUS_SUCCESS);
     ok(*ReadOnlyFile != NULL, "Couldn't acquire READONLY handle\n");
 
     //INIT THE WRITE-ONLY FILE
-    InitializeObjectAttributes(&ObjectAttributes, &FileWriteOnly, (OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE), NULL, NULL);
-    Status = ZwCreateFile(WriteOnlyFile, (GENERIC_WRITE | SYNCHRONIZE), &ObjectAttributes, &IoStatusBlock, NULL, FILE_ATTRIBUTE_NORMAL, FILE_SHARE_READ, FILE_SUPERSEDE, (FILE_NON_DIRECTORY_FILE | FILE_DELETE_ON_CLOSE), NULL, 0);
+    //TODO: Delete the file when the tests are all executed
+    Status = ZwCreateFile(WriteOnlyFile, (GENERIC_WRITE | SYNCHRONIZE), &KmtestFileObject, &IoStatusBlock, NULL, FILE_ATTRIBUTE_NORMAL, FILE_SHARE_WRITE, FILE_SUPERSEDE, FILE_NON_DIRECTORY_FILE, NULL, 0);
     ok_eq_hex(Status, STATUS_SUCCESS);
     ok_eq_ulongptr(IoStatusBlock.Information, FILE_CREATED);
     ok(*WriteOnlyFile != NULL, "WriteOnlyFile is NULL\n");
@@ -66,12 +64,11 @@ KmtInitTestFiles(PHANDLE ReadOnlyFile, PHANDLE WriteOnlyFile)
 
 static
 VOID 
-SimpleErrorChecks(VOID) 
+SimpleErrorChecks(HANDLE FileHandleReadOnly, HANDLE FileHandleWriteOnly) 
 {
     NTSTATUS Status;
     HANDLE Section = NULL;
-    HANDLE FileHandleReadOnly = NULL;
-    HANDLE FileHandleWriteOnly = NULL;
+
     
     OBJECT_ATTRIBUTES ObjectAttributesReadOnly;
     OBJECT_ATTRIBUTES ObjectAttributesWriteOnly;
@@ -131,11 +128,10 @@ SimpleErrorChecks(VOID)
     CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_READWRITE, (SEC_NOCACHE | SEC_RESERVE | SEC_COMMIT), NULL, STATUS_INVALID_PARAMETER_6, STATUS_SUCCESS);
     CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_READWRITE, (SEC_NOCACHE | SEC_COMMIT), NULL, STATUS_SUCCESS, STATUS_SUCCESS);
     CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_READWRITE, (SEC_NOCACHE | SEC_RESERVE), NULL, STATUS_SUCCESS, STATUS_SUCCESS);
-    
+    CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_READWRITE, SEC_IMAGE, NULL, STATUS_INVALID_FILE_FOR_SECTION, STATUS_SUCCESS);
+
+
     //NORMAL FILE-BACKED SECTION
-    
-    //necessary init
-    KmtInitTestFiles(&FileHandleReadOnly, &FileHandleWriteOnly);
 
     //DESIRED ACCESS TESTS 
     CREATE_SECTION(Section, SECTION_ALL_ACCESS, &ObjectAttributesReadOnly, MaximumSize, PAGE_READONLY, SEC_COMMIT, FileHandleReadOnly, STATUS_SUCCESS, STATUS_SUCCESS);
@@ -158,7 +154,7 @@ SimpleErrorChecks(VOID)
     CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_READONLY, SEC_COMMIT, FileHandleReadOnly, STATUS_SUCCESS, STATUS_SUCCESS);
     
     //PAGE PROTECTION
-    CREATE_SECTION(Section, SECTION_ALL_ACCESS, &ObjectAttributesReadOnly, MaximumSize, PAGE_READWRITE, SEC_COMMIT, FileHandleReadOnly, STATUS_INVALID_PAGE_PROTECTION, IGNORE);
+  /*  CREATE_SECTION(Section, SECTION_ALL_ACCESS, &ObjectAttributesReadOnly, MaximumSize, PAGE_READWRITE, SEC_COMMIT, FileHandleReadOnly, STATUS_INVALID_PAGE_PROTECTION, IGNORE);
     CREATE_SECTION(Section, SECTION_ALL_ACCESS, &ObjectAttributesReadOnly, MaximumSize, PAGE_EXECUTE_READWRITE, SEC_COMMIT, FileHandleReadOnly, STATUS_INVALID_PAGE_PROTECTION, IGNORE);
     CREATE_SECTION(Section, SECTION_ALL_ACCESS, &ObjectAttributesWriteOnly, MaximumSize, PAGE_READONLY, SEC_COMMIT, FileHandleWriteOnly, STATUS_INVALID_PAGE_PROTECTION, IGNORE);
     CREATE_SECTION(Section, SECTION_ALL_ACCESS, &ObjectAttributesWriteOnly, MaximumSize, PAGE_READWRITE, SEC_COMMIT, FileHandleWriteOnly, STATUS_INVALID_PAGE_PROTECTION, IGNORE);
@@ -166,21 +162,75 @@ SimpleErrorChecks(VOID)
     CREATE_SECTION(Section, SECTION_ALL_ACCESS, &ObjectAttributesWriteOnly, MaximumSize, PAGE_EXECUTE_READ, SEC_COMMIT, FileHandleWriteOnly, STATUS_INVALID_PAGE_PROTECTION, IGNORE); 
     CREATE_SECTION(Section, SECTION_ALL_ACCESS, &ObjectAttributesWriteOnly, MaximumSize, PAGE_WRITECOPY, SEC_COMMIT, FileHandleWriteOnly, STATUS_INVALID_PAGE_PROTECTION, IGNORE); 
     
+   */ 
+
+}
+
+static
+VOID
+BasicBehaviorChecks(VOID) 
+{
+    NTSTATUS Status;
+    HANDLE Section = NULL;
+    HANDLE FileHandle;
+    IO_STATUS_BLOCK IoStatusBlock;
+    PFILE_OBJECT File;
+    LARGE_INTEGER Length;
+    Length.QuadPart = TestStringSize;
+
+
+    //mimic lack of section support for a particular file.
+    Status = ZwCreateFile(&FileHandle, GENERIC_READ, &KmtestFileObject, &IoStatusBlock, NULL, FILE_ATTRIBUTE_NORMAL, 0, FILE_OPEN, (FILE_NON_DIRECTORY_FILE | FILE_DELETE_ON_CLOSE), NULL, 0);
     
-    
-    
+    if (NT_SUCCESS(Status))
+    {
+        Status = ObReferenceObjectByHandle(FileHandle, STANDARD_RIGHTS_ALL, IoFileObjectType, KernelMode, &File, NULL);
+        if (NT_SUCCESS(Status))  
+        {
+            
+            PSECTION_OBJECT_POINTERS Pointers = File->SectionObjectPointer;
+
+            File->SectionObjectPointer = NULL;
+            CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, Length, PAGE_READONLY, SEC_COMMIT, FileHandle, STATUS_INVALID_FILE_FOR_SECTION, IGNORE);
+            File->SectionObjectPointer = Pointers;
+            ObDereferenceObject(File);
+        }
+
+        ZwClose(FileHandle);
+    }
+
+
+
+    //check zero-based section
+    Status = ZwCreateFile(&FileHandle, (GENERIC_WRITE | SYNCHRONIZE), &KmtestFileObject, &IoStatusBlock, NULL, FILE_ATTRIBUTE_NORMAL, FILE_SHARE_WRITE, FILE_OVERWRITE_IF, (FILE_NON_DIRECTORY_FILE | FILE_DELETE_ON_CLOSE), NULL, 0);
+    if (NT_SUCCESS(Status))
+    {
+        Length.QuadPart = 0;
+        CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, Length, PAGE_READONLY, SEC_COMMIT, FileHandle, STATUS_MAPPED_FILE_SIZE_ZERO, IGNORE);
+        ZwClose(FileHandle);
+    }
+
+}
+
+
+START_TEST(ZwCreateSection) 
+{
+    HANDLE FileHandleReadOnly = NULL;
+    HANDLE FileHandleWriteOnly = NULL;
+
+    InitializeObjectAttributes(&NtdllObject, &FileReadOnly, (OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE), NULL, NULL);
+    InitializeObjectAttributes(&KmtestFileObject, &FileWriteOnly, (OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE), NULL, NULL);
+    KmtInitTestFiles(&FileHandleReadOnly, &FileHandleWriteOnly);
+
+    SimpleErrorChecks(FileHandleReadOnly, FileHandleWriteOnly); 
+
     if(FileHandleReadOnly)
         ZwClose(FileHandleReadOnly);
 
     if(FileHandleWriteOnly)
         ZwClose(FileHandleWriteOnly);
-}
 
+    BasicBehaviorChecks();
 
-
-START_TEST(ZwCreateSection) 
-{
-
-    SimpleErrorChecks(); 
     
 }
