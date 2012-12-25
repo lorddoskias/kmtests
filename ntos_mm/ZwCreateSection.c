@@ -31,6 +31,7 @@ static PKUSER_SHARED_DATA UserSharedData = (PKUSER_SHARED_DATA)0xffdf0000;
         }                                                                                                                                                   \
     } while (0)                                                                                                                                             \
 
+
 static 
 VOID
 KmtInitTestFiles(PHANDLE ReadOnlyFile, PHANDLE WriteOnlyFile) 
