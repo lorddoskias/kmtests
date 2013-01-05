@@ -8,6 +8,7 @@
 #include <kmt_test.h>
 
 #define IGNORE -999
+#define NO_HANDLE_CLOSE -998
 #define _4mb 4194304
 extern const char TestString[];
 extern const SIZE_T TestStringSize;
@@ -25,12 +26,42 @@ static PKUSER_SHARED_DATA UserSharedData = (PKUSER_SHARED_DATA)0xffdf0000;
         ok_eq_hex(Status, RetStatus);                                                                                                                       \
         if(Handle != NULL)                                                                                                                                  \
         {                                                                                                                                                   \
-           Status = ZwClose(Handle);                                                                                                                        \
-           if (CloseRetStatus != IGNORE) ok_eq_hex(Status, CloseRetStatus);                                                                                 \
-            Handle = NULL;                                                                                                                                  \
+                                                                                                                                                            \
+          if (CloseRetStatus != NO_HANDLE_CLOSE)                                                                                                            \
+            {                                                                                                                                               \
+                Status = ZwClose(Handle);                                                                                                                   \
+                Handle = NULL;                                                                                                                              \
+                if(CloseRetStatus != IGNORE) ok_eq_hex(Status, CloseRetStatus);                                                                             \
+            }                                                                                                                                               \
         }                                                                                                                                                   \
     } while (0)                                                                                                                                             \
 
+
+#define CheckObject(Handle, Pointers, Handles) do                   \
+{                                                                   \
+    PUBLIC_OBJECT_BASIC_INFORMATION ObjectInfo;                     \
+    Status = ZwQueryObject(Handle, ObjectBasicInformation,          \
+    &ObjectInfo, sizeof ObjectInfo, NULL);                          \
+    ok_eq_hex(Status, STATUS_SUCCESS);                              \
+    ok_eq_ulong(ObjectInfo.PointerCount, Pointers);                 \
+    ok_eq_ulong(ObjectInfo.HandleCount, Handles);                   \
+} while (0)
+
+
+#define CheckSection(SectionHandle, SectionFlag, SectionSize, RetStatus) do \
+{                                                                           \
+    SECTION_BASIC_INFORMATION Sbi;                                          \
+    NTSTATUS Status;                                                        \
+    Status = ZwQuerySection(SectionHandle, SectionBasicInformation,         \
+    &Sbi, sizeof Sbi, NULL);                                                \
+    ok_eq_hex(Status, RetStatus);                                           \
+    if(RetStatus == STATUS_SUCCESS && NT_SUCCESS(Status))                   \
+    {                                                                       \
+        ok_eq_pointer(Sbi.BaseAddress, NULL);                               \
+        ok_eq_longlong(Sbi.Size.QuadPart, SectionSize);                     \
+        ok_eq_hex(Sbi.Attributes, SectionFlag | SEC_FILE);                  \
+    }                                                                       \
+} while (0)
 
 static 
 VOID
@@ -88,7 +119,7 @@ SimpleErrorChecks(HANDLE FileHandleReadOnly, HANDLE FileHandleWriteOnly)
     //PAGE FILE BACKED SECTION
     //DESIRED ACCESS TESTS
     CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_READWRITE, SEC_COMMIT, NULL, STATUS_SUCCESS, STATUS_SUCCESS);
-    CREATE_SECTION(Section, NULL, NULL, MaximumSize, PAGE_READWRITE, SEC_COMMIT, NULL, STATUS_SUCCESS, STATUS_SUCCESS);
+    CREATE_SECTION(Section, 0, NULL, MaximumSize, PAGE_READWRITE, SEC_COMMIT, NULL, STATUS_SUCCESS, STATUS_SUCCESS);
     CREATE_SECTION(Section, -1, NULL, MaximumSize, PAGE_READWRITE, SEC_COMMIT, NULL, STATUS_SUCCESS, STATUS_SUCCESS);
 
     //OBJECT ATTRIBUTES 
@@ -115,6 +146,8 @@ SimpleErrorChecks(HANDLE FileHandleReadOnly, HANDLE FileHandleWriteOnly)
     CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, (PAGE_EXECUTE_READ | PAGE_READWRITE), SEC_COMMIT, NULL, STATUS_INVALID_PAGE_PROTECTION, IGNORE);
     CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, (PAGE_READONLY | PAGE_READWRITE), SEC_COMMIT, NULL, STATUS_INVALID_PAGE_PROTECTION, IGNORE);
     CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, (PAGE_WRITECOPY | PAGE_READONLY), SEC_COMMIT, NULL, STATUS_INVALID_PAGE_PROTECTION, IGNORE);
+    CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, 0, SEC_COMMIT, NULL, STATUS_INVALID_PAGE_PROTECTION, STATUS_SUCCESS);
+    CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, -1, SEC_COMMIT, NULL, STATUS_INVALID_PAGE_PROTECTION, STATUS_SUCCESS);
 
     //ALLOCATION ATTRIBUTES
     CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_READWRITE, 0, NULL, STATUS_INVALID_PARAMETER_6, STATUS_SUCCESS);
@@ -130,7 +163,6 @@ SimpleErrorChecks(HANDLE FileHandleReadOnly, HANDLE FileHandleWriteOnly)
     CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_READWRITE, (SEC_NOCACHE | SEC_COMMIT), NULL, STATUS_SUCCESS, STATUS_SUCCESS);
     CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_READWRITE, (SEC_NOCACHE | SEC_RESERVE), NULL, STATUS_SUCCESS, STATUS_SUCCESS);
     CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_READWRITE, SEC_IMAGE, NULL, STATUS_INVALID_FILE_FOR_SECTION, STATUS_SUCCESS);
-
 
     //NORMAL FILE-BACKED SECTION
 
@@ -181,7 +213,7 @@ BasicBehaviorChecks(VOID)
 
 
     //mimic lack of section support for a particular file.
-    Status = ZwCreateFile(&FileHandle, GENERIC_READ, &KmtestFileObject, &IoStatusBlock, NULL, FILE_ATTRIBUTE_NORMAL, 0, FILE_OPEN, (FILE_NON_DIRECTORY_FILE | FILE_DELETE_ON_CLOSE), NULL, 0);
+    Status = ZwCreateFile(&FileHandle, GENERIC_READ, &KmtestFileObject, &IoStatusBlock, NULL, FILE_ATTRIBUTE_NORMAL, 0, FILE_OPEN, FILE_NON_DIRECTORY_FILE, NULL, 0);
     
     if (NT_SUCCESS(Status))
     {
@@ -200,7 +232,17 @@ BasicBehaviorChecks(VOID)
         ZwClose(FileHandle);
     }
 
-
+    //check normal section query 
+    Status = ZwCreateFile(&FileHandle, GENERIC_READ, &KmtestFileObject, &IoStatusBlock, NULL, FILE_ATTRIBUTE_NORMAL, 0, FILE_OPEN, (FILE_NON_DIRECTORY_FILE | FILE_DELETE_ON_CLOSE), NULL, 0); 
+    if(NT_SUCCESS(Status))
+    {
+       CREATE_SECTION(Section, (SECTION_ALL_ACCESS), NULL, Length, PAGE_READONLY, SEC_COMMIT, FileHandle, STATUS_SUCCESS, NO_HANDLE_CLOSE);
+       CheckObject(Section, 2, 1);
+       CheckSection(Section, SEC_FILE, Length.QuadPart, STATUS_SUCCESS);
+       ZwClose(FileHandle);
+       ZwClose(Section); //we have to manually close it due to NO_HANDLE_CLOSE in CREATE_SECTION
+       Section = NULL;
+    }
 
     //check zero-based section
     Status = ZwCreateFile(&FileHandle, (GENERIC_WRITE | SYNCHRONIZE), &KmtestFileObject, &IoStatusBlock, NULL, FILE_ATTRIBUTE_NORMAL, FILE_SHARE_WRITE, FILE_OVERWRITE_IF, (FILE_NON_DIRECTORY_FILE | FILE_DELETE_ON_CLOSE), NULL, 0);
@@ -210,7 +252,6 @@ BasicBehaviorChecks(VOID)
         CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, Length, PAGE_READONLY, SEC_COMMIT, FileHandle, STATUS_MAPPED_FILE_SIZE_ZERO, IGNORE);
         ZwClose(FileHandle);
     }
-
 }
 
 
