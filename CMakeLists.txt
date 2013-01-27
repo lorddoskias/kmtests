@@ -51,6 +51,7 @@ list(APPEND KMTEST_DRV_SOURCE
     ntos_mm/MmSection.c
     ntos_mm/ZwAllocateVirtualMemory.c
     ntos_mm/ZwCreateSection.c
+    ntos_mm/ZwMapViewOfSection.c
     ntos_ob/ObReference.c
     ntos_ob/ObType.c
     ntos_ob/ObTypes.c

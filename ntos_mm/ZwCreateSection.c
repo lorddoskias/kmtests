@@ -17,8 +17,6 @@ static UNICODE_STRING FileWriteOnly = RTL_CONSTANT_STRING(L"\\SystemRoot\\kmtest
 static OBJECT_ATTRIBUTES NtdllObject;
 static OBJECT_ATTRIBUTES KmtestFileObject;
 
-/* http://picturoku.blogspot.co.uk/2011/07/pointers-for-user-shared-data.html */
-static PKUSER_SHARED_DATA UserSharedData = (PKUSER_SHARED_DATA)0xffdf0000;
 
 #define CREATE_SECTION(Handle, DesiredAccess, Attributes, Size, SectionPageProtection, AllocationAttributes, FileHandle,  RetStatus, CloseRetStatus)  do    \
     {                                                                                                                                                       \
@@ -133,8 +131,13 @@ SimpleErrorChecks(HANDLE FileHandleReadOnly, HANDLE FileHandleWriteOnly)
     MaximumSize.QuadPart = 0;
     CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_READWRITE, SEC_COMMIT, NULL, STATUS_INVALID_PARAMETER_4, IGNORE);
    
-    MaximumSize.QuadPart = (_4mb / UserSharedData->LargePageMinimum) * UserSharedData->LargePageMinimum; //4mb 
-    CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_READWRITE, (SEC_LARGE_PAGES | SEC_COMMIT), NULL, STATUS_SUCCESS, STATUS_SUCCESS);
+    //division by zero in ROS
+    if (SharedUserData->LargePageMinimum > 0 ) 
+    {
+        MaximumSize.QuadPart = (_4mb / SharedUserData->LargePageMinimum) * SharedUserData->LargePageMinimum; //4mb 
+        CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_READWRITE, (SEC_LARGE_PAGES | SEC_COMMIT), NULL, STATUS_SUCCESS, STATUS_SUCCESS);
+    }
+    
    
     MaximumSize.QuadPart = TestStringSize;
 
