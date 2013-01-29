@@ -30,6 +30,18 @@ static OBJECT_ATTRIBUTES KmtestFileObject;
         }                                                                           \
     } while (0)                                                                     \
 
+#define MmTestMapView(Object, ProcessHandle, BaseAddress2, ZeroBits, CommitSize, SectionOffset, ViewSize2, InheritDisposition, AllocationType, Win32Protect, MapStatus, UnmapStatus) do    \
+    {                                                                                                                                                                                           \
+        Status = MmMapViewOfSection(Object, ProcessHandle, BaseAddress2, ZeroBits, CommitSize, SectionOffset, ViewSize2, InheritDisposition, AllocationType, Win32Protect);              \
+        ok_eq_hex(Status, MapStatus);                                               \
+        if (NT_SUCCESS(Status))                                                     \
+        {                                                                           \
+            Status = MmUnmapViewOfSection(ProcessHandle, BaseAddress);              \
+            if(UnmapStatus != IGNORE) ok_eq_hex(Status, UnmapStatus);               \
+            *BaseAddress2 = NULL;                                                   \
+            *ViewSize2 = 0;                                                         \
+        }                                                                           \
+    } while (0)                                                                     \
 
 static 
 VOID
@@ -62,6 +74,53 @@ KmtInitTestFiles(PHANDLE ReadOnlyFile, PHANDLE WriteOnlyFile)
     }
 }
 
+static
+VOID
+AdvancedErrorChecks(HANDLE FileHandleReadOnly, HANDLE FileHandleWriteOnly)
+{
+    NTSTATUS Status;
+    PVOID BaseAddress;
+    HANDLE PageFileSectionHandle;
+    HANDLE FileSectionHandle;
+    LARGE_INTEGER SectionOffset;
+    LARGE_INTEGER MaximumSize;
+    SIZE_T ViewSize = 0;
+    PVOID SectionObject; 
+
+    
+    MaximumSize.QuadPart = TestStringSize;
+    //Used for parameters working on file-based section
+    Status = ZwCreateSection(&FileSectionHandle, SECTION_ALL_ACCESS, NULL, &MaximumSize, PAGE_READWRITE, SEC_COMMIT, FileHandleWriteOnly);
+    ok_eq_hex(Status, STATUS_SUCCESS);   
+
+    Status = ObReferenceObjectByHandle(FileSectionHandle, 
+                                       STANDARD_RIGHTS_ALL,
+                                       NULL, 
+                                       KernelMode, 
+                                       &SectionObject, 
+                                       NULL);
+
+    ok_eq_hex(Status, STATUS_SUCCESS);
+
+    //Bypassing Nt/Zw function calls mean I bypass the alignment checks which are not crucial for the branches being tested here
+
+    //test first conditional branch 
+    ViewSize = -1;
+    MmTestMapView(SectionObject, PsGetCurrentProcess(), &BaseAddress, 0, TestStringSize, &SectionOffset, &ViewSize, ViewUnmap, MEM_RESERVE, PAGE_READWRITE, STATUS_INVALID_VIEW_SIZE, IGNORE);
+
+    //test second conditional branch
+    ViewSize = 1;
+    SectionOffset.QuadPart = TestStringSize;
+    MmTestMapView(SectionObject, PsGetCurrentProcess(), &BaseAddress, 0, TestStringSize, &SectionOffset, &ViewSize, ViewUnmap, 0, PAGE_READWRITE, STATUS_INVALID_VIEW_SIZE, IGNORE);
+    MmTestMapView(SectionObject, PsGetCurrentProcess(), &BaseAddress, 0, TestStringSize, &SectionOffset, &ViewSize, ViewUnmap, MEM_RESERVE, PAGE_READWRITE, STATUS_SUCCESS, STATUS_SUCCESS);
+
+    //test region size 
+
+    ZwClose(FileSectionHandle);
+}
+
+
+static
 VOID
 SimpleErrorChecks(HANDLE FileHandleReadOnly, HANDLE FileHandleWriteOnly) 
 {
@@ -144,7 +203,8 @@ SimpleErrorChecks(HANDLE FileHandleReadOnly, HANDLE FileHandleWriteOnly)
     TestMapView(PageFileSectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 0x10000000, NULL, &ViewSize, ViewUnmap, 0, PAGE_READWRITE, STATUS_INVALID_PARAMETER_5, IGNORE);
     TestMapView(PageFileSectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 0x01000000, NULL, &ViewSize, ViewUnmap, 0, PAGE_READWRITE, STATUS_INVALID_PARAMETER_5, IGNORE);
     TestMapView(Handle, ZwCurrentProcess(), &BaseAddress, 0, 500, NULL, &ViewSize, ViewUnmap, 0, PAGE_READWRITE, STATUS_INVALID_PARAMETER_5, IGNORE);
-        
+    TestMapView(Handle, ZwCurrentProcess(), &BaseAddress, 0, 500, NULL, &ViewSize, ViewUnmap, MEM_RESERVE, PAGE_READWRITE, STATUS_SUCCESS, STATUS_SUCCESS);    
+    
     //section offset
     SectionOffset.QuadPart = 0;
     TestMapView(Handle, ZwCurrentProcess(), &BaseAddress, 0, 0, &SectionOffset, &ViewSize, ViewUnmap, 0, PAGE_READWRITE, STATUS_SUCCESS, STATUS_SUCCESS);
@@ -164,7 +224,8 @@ SimpleErrorChecks(HANDLE FileHandleReadOnly, HANDLE FileHandleWriteOnly)
     
     ViewSize = TestStringSize+1;
     TestMapView(Handle, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READWRITE, STATUS_INVALID_VIEW_SIZE, IGNORE);
-
+    TestMapView(Handle, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, MEM_RESERVE, PAGE_READWRITE, STATUS_SUCCESS, STATUS_SUCCESS);
+    
     ViewSize = TestStringSize;
     TestMapView(Handle, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READWRITE, STATUS_SUCCESS, STATUS_SUCCESS);
 
@@ -189,6 +250,7 @@ SimpleErrorChecks(HANDLE FileHandleReadOnly, HANDLE FileHandleWriteOnly)
     TestMapView(ReadOnlySection, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READONLY, STATUS_SUCCESS, STATUS_SUCCESS);
     TestMapView(ReadOnlySection, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_NOACCESS, STATUS_SUCCESS, STATUS_SUCCESS);
     TestMapView(ReadOnlySection, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, (PAGE_READWRITE | PAGE_READONLY), STATUS_INVALID_PAGE_PROTECTION, IGNORE);
+    TestMapView(ReadOnlySection, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, MEM_RESERVE, PAGE_READONLY, STATUS_SECTION_PROTECTION, IGNORE);
 
     ZwClose(Handle);
     ZwClose(PageFileSectionHandle);
@@ -206,6 +268,7 @@ START_TEST(ZwMapViewOfSection)
     KmtInitTestFiles(&FileHandleReadOnly, &FileHandleWriteOnly);
 
     SimpleErrorChecks(FileHandleReadOnly, FileHandleWriteOnly);
+    AdvancedErrorChecks(FileHandleReadOnly, FileHandleWriteOnly);
 
     if(FileHandleReadOnly)
         ZwClose(FileHandleReadOnly);
