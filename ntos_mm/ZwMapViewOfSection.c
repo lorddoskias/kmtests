@@ -8,9 +8,11 @@
 #include <kmt_test.h>
 
 #define IGNORE -99
-
+#define NEW_CONTENT "NewContent"
+#define NEW_CONTENT_LEN 10
 static UNICODE_STRING FileReadOnly = RTL_CONSTANT_STRING(L"\\SystemRoot\\system32\\ntdll.dll");
 static UNICODE_STRING FileWriteOnly = RTL_CONSTANT_STRING(L"\\SystemRoot\\kmtest-MmSection.txt");
+static UNICODE_STRING PageSectionName = RTL_CONSTANT_STRING(L"\\BaseNamedObjects\\kmtest-SharedPageSection");
 extern const char TestString[];
 extern const SIZE_T TestStringSize;
 static OBJECT_ATTRIBUTES NtdllObject;
@@ -82,7 +84,6 @@ AdvancedErrorChecks(HANDLE FileHandleReadOnly, HANDLE FileHandleWriteOnly)
 {
     NTSTATUS Status;
     PVOID BaseAddress;
-    HANDLE PageFileSectionHandle;
     HANDLE FileSectionHandle;
     LARGE_INTEGER SectionOffset;
     LARGE_INTEGER MaximumSize;
@@ -127,7 +128,6 @@ SimpleErrorChecks(HANDLE FileHandleReadOnly, HANDLE FileHandleWriteOnly)
 {
 
     NTSTATUS Status;
-    NTSTATUS ExceptionStatus;
     HANDLE Handle;
     HANDLE ReadOnlySection;
     HANDLE PageFileSectionHandle;
@@ -253,6 +253,10 @@ SimpleErrorChecks(HANDLE FileHandleReadOnly, HANDLE FileHandleWriteOnly)
     TestMapView(ReadOnlySection, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, (PAGE_READWRITE | PAGE_READONLY), STATUS_INVALID_PAGE_PROTECTION, IGNORE);
     TestMapView(ReadOnlySection, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, MEM_RESERVE, PAGE_READONLY, STATUS_SECTION_PROTECTION, IGNORE);
 
+
+    //TODO: 
+    /* Write tests based on the DesiredAccess of the ZwCreateSection */
+
     ZwClose(Handle);
     ZwClose(PageFileSectionHandle);
     ZwClose(ReadOnlySection);
@@ -265,13 +269,12 @@ BehaviorChecks(HANDLE FileHandleReadOnly, HANDLE FileHandleWriteOnly)
 {
     NTSTATUS Status;
     PVOID BaseAddress = NULL;
-    HANDLE PageFileSectionHandle;
     HANDLE ReadOnlySectionHandle;
     HANDLE WriteSectionHandle;
     LARGE_INTEGER SectionOffset;
     LARGE_INTEGER MaximumSize;
     SIZE_T Match;
-    char *String = "NewContent";
+    char *String = NEW_CONTENT;
     SIZE_T ViewSize = 0;
 
     MaximumSize.QuadPart = TestStringSize;
@@ -280,7 +283,7 @@ BehaviorChecks(HANDLE FileHandleReadOnly, HANDLE FileHandleWriteOnly)
     Status = ZwCreateSection(&WriteSectionHandle, SECTION_ALL_ACCESS, NULL, &MaximumSize, PAGE_READWRITE, SEC_COMMIT, FileHandleWriteOnly);
     ok(NT_SUCCESS(Status), "Error creating write section from file. Error = %p\n", Status); 
 
-    //check for section reading/writing by comparing its content to a well-known pattern.
+    //check for section reading/writing by comparing section content to a well-known value.
     Status = ZwMapViewOfSection(WriteSectionHandle, ZwCurrentProcess() ,&BaseAddress, 0, 0, &SectionOffset, &ViewSize, ViewUnmap, 0, PAGE_READWRITE);
     ok(NT_SUCCESS(Status), "Error mapping view with READ/WRITE priv. Error = %p\n", Status);
     if (NT_SUCCESS(Status))
@@ -291,26 +294,26 @@ BehaviorChecks(HANDLE FileHandleReadOnly, HANDLE FileHandleWriteOnly)
         Match = RtlCompareMemory(BaseAddress, TestString, TestStringSize);
         ok_eq_size(Match, TestStringSize);
 
-        RtlCopyMemory(BaseAddress, String, 10);
+        //now check writing to section
+        RtlCopyMemory(BaseAddress, String, NEW_CONTENT_LEN);
 
-        Match = RtlCompareMemory(BaseAddress, String, 10);
-        ok_eq_size(Match, 10);
+        Match = RtlCompareMemory(BaseAddress, String, NEW_CONTENT_LEN);
+        ok_eq_size(Match, NEW_CONTENT_LEN);
 
-        //check to see if the contents have been written to the actual file on disk.
-        Match = 0;
-        
-        FileContent = ExAllocatePoolWithTag(PagedPool, 10, 'Test');
+        //check to see if the contents have been flushed to the actual file on disk.        
+        FileContent = ExAllocatePoolWithTag(PagedPool, NEW_CONTENT_LEN, 'Test');
         if (FileContent != NULL)
         {
             LARGE_INTEGER ByteOffset;
             ByteOffset.QuadPart = 0;
 
-            Status = ZwReadFile(FileHandleWriteOnly, NULL, NULL, NULL, &IoStatusBlock, FileContent, 10, &ByteOffset, NULL);
+            Status = ZwReadFile(FileHandleWriteOnly, NULL, NULL, NULL, &IoStatusBlock, FileContent, NEW_CONTENT_LEN, &ByteOffset, NULL);
             ok_eq_hex(Status, STATUS_SUCCESS);
-            ok_eq_ulongptr(IoStatusBlock.Information, 10);
-
-            Match = RtlCompareMemory(FileContent, String, 10);
-            ok_eq_size(Match, 10);
+            ok_eq_ulongptr(IoStatusBlock.Information, NEW_CONTENT_LEN);
+            
+            Match = 0;
+            Match = RtlCompareMemory(FileContent, String, NEW_CONTENT_LEN);
+            ok_eq_size(Match, NEW_CONTENT_LEN);
 
             //return everything to normal.
             RtlCopyMemory(BaseAddress, TestString, TestStringSize);
@@ -320,7 +323,6 @@ BehaviorChecks(HANDLE FileHandleReadOnly, HANDLE FileHandleWriteOnly)
         ZwUnmapViewOfSection(ZwCurrentProcess(), BaseAddress);
 
     }
-
 
     //Try to write to read-only section
     BaseAddress = NULL;
@@ -342,7 +344,143 @@ BehaviorChecks(HANDLE FileHandleReadOnly, HANDLE FileHandleWriteOnly)
         ZwUnmapViewOfSection(ZwCurrentProcess(), BaseAddress);
     }
 
+    //try to access forbidden memory 
+    BaseAddress = NULL;
+    ViewSize = 0;
+    SectionOffset.QuadPart = 0;
+    Status = ZwMapViewOfSection(WriteSectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 0, &SectionOffset, &ViewSize, ViewUnmap, 0, PAGE_NOACCESS);
+    ok(NT_SUCCESS(Status), "Error mapping view with READ priv. Error = %p\n", Status);
+    if (NT_SUCCESS(Status))
+    {
+        NTSTATUS ExceptionStatus;
+
+        KmtStartSeh()
+        RtlCompareMemory(BaseAddress, TestString, TestStringSize);
+        KmtEndSeh(STATUS_ACCESS_VIOLATION);
+
+        ZwUnmapViewOfSection(ZwCurrentProcess(), BaseAddress);
+    }
+
     ZwClose(WriteSectionHandle);
+}
+
+
+static 
+VOID
+NTAPI
+SystemProcessWorker(PVOID StartContext)
+{
+    NTSTATUS Status;
+    PVOID BaseAddress;
+    HANDLE SectionHandle;
+    SIZE_T ViewSize;
+    SIZE_T Match;
+    LARGE_INTEGER SectionOffset;
+    char *String;
+    OBJECT_ATTRIBUTES ObjectAttributes;
+
+    UNREFERENCED_PARAMETER(StartContext);
+
+    BaseAddress = NULL;
+    ViewSize = TestStringSize;
+    String = NEW_CONTENT;
+    SectionOffset.QuadPart = 0;
+    
+    InitializeObjectAttributes(&ObjectAttributes, &PageSectionName, (OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE), NULL, NULL);
+    Status = ZwOpenSection(&SectionHandle, SECTION_ALL_ACCESS, &ObjectAttributes);
+    ok_eq_hex(Status, STATUS_SUCCESS);
+
+    if (NT_SUCCESS(Status))
+    {
+        Status = ZwMapViewOfSection(SectionHandle, ZwCurrentProcess(), &BaseAddress, 0, TestStringSize, &SectionOffset, &ViewSize, ViewUnmap, 0, PAGE_READWRITE);
+        ok(NT_SUCCESS(Status), "Error mapping page file view in system process. Error = %p\n", Status);
+
+        if (NT_SUCCESS(Status))
+        {
+            Match = RtlCompareMemory(BaseAddress, TestString, TestStringSize);
+            ok_eq_size(Match, TestStringSize);
+            
+            RtlCopyMemory(BaseAddress, String, NEW_CONTENT_LEN);
+            ZwUnmapViewOfSection(ZwCurrentProcess(), BaseAddress);
+        }
+
+        ZwClose(SectionHandle);
+    }
+
+    PsTerminateSystemThread(STATUS_SUCCESS);
+}
+
+
+static
+VOID 
+PageFileBehaviorChecks() 
+{
+
+    NTSTATUS Status;
+    LARGE_INTEGER MaxSectionSize;
+    LARGE_INTEGER SectionOffset;
+    HANDLE PageFileSectionHandle;
+    PVOID BaseAddress; 
+    SIZE_T CommitSize;
+    SIZE_T ViewSize;
+    SIZE_T Match;
+    char *String;
+    PVOID ThreadObject;
+    OBJECT_ATTRIBUTES ObjectAttributes;
+
+    
+    MaxSectionSize.QuadPart = TestStringSize;
+    SectionOffset.QuadPart = 0;
+    PageFileSectionHandle = INVALID_HANDLE_VALUE;
+    BaseAddress = NULL;
+    CommitSize = TestStringSize;
+    ViewSize = TestStringSize;
+    String = NEW_CONTENT;
+    InitializeObjectAttributes(&ObjectAttributes, &PageSectionName, (OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE), NULL, NULL);
+
+    Status = ZwCreateSection(&PageFileSectionHandle, SECTION_ALL_ACCESS, &ObjectAttributes, &MaxSectionSize, PAGE_READWRITE, SEC_COMMIT, NULL);
+    ok(NT_SUCCESS(Status), "Error creating page file section. Error = %p\n", Status);
+
+    if (NT_SUCCESS(Status))
+    {
+        Status = ZwMapViewOfSection(PageFileSectionHandle, ZwCurrentProcess(), &BaseAddress, 0, TestStringSize, &SectionOffset, &ViewSize, ViewUnmap, 0, PAGE_READWRITE);
+        ok(NT_SUCCESS(Status), "Error mapping page file view. Error = %p\n", Status);
+
+        if (NT_SUCCESS(Status))
+        {
+            HANDLE SysThreadHandle;
+
+            RtlCopyMemory(BaseAddress, TestString, TestStringSize);
+
+            InitializeObjectAttributes(&ObjectAttributes, NULL, OBJ_KERNEL_HANDLE, NULL, NULL);
+            Status = PsCreateSystemThread(&SysThreadHandle, STANDARD_RIGHTS_ALL, &ObjectAttributes, NULL, NULL, SystemProcessWorker, NULL);
+            
+            if (!NT_SUCCESS(Status)) 
+            {
+                goto cleanup;
+            }
+
+            Status = ObReferenceObjectByHandle(SysThreadHandle, THREAD_ALL_ACCESS, PsThreadType, KernelMode, &ThreadObject, NULL);
+            
+            if (!NT_SUCCESS(Status))
+            {
+                trace("Error referencing thread \n");
+                goto cleanup;
+            }
+
+            //wait until the system thread actually terminates 
+            KeWaitForSingleObject(ThreadObject, Executive, KernelMode, FALSE, NULL);
+
+            //test for bi-directional access to the shared page file
+            Match = RtlCompareMemory(BaseAddress, String, NEW_CONTENT_LEN);
+            ok_eq_size(Match, NEW_CONTENT_LEN);
+        }
+    }
+
+cleanup:
+    if (BaseAddress != NULL) ZwUnmapViewOfSection(ZwCurrentProcess(), BaseAddress);
+
+    if (PageFileSectionHandle != INVALID_HANDLE_VALUE) ZwClose(PageFileSectionHandle);
 }
 
 
@@ -359,6 +497,7 @@ START_TEST(ZwMapViewOfSection)
     SimpleErrorChecks(FileHandleReadOnly, FileHandleWriteOnly);
     AdvancedErrorChecks(FileHandleReadOnly, FileHandleWriteOnly);
     BehaviorChecks(FileHandleReadOnly, FileHandleWriteOnly);
+    PageFileBehaviorChecks();
 
     if(FileHandleReadOnly)
         ZwClose(FileHandleReadOnly);
