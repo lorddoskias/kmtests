@@ -12,8 +12,8 @@
 #define _4mb 4194304
 extern const char TestString[];
 extern const SIZE_T TestStringSize;
-static UNICODE_STRING FileReadOnly = RTL_CONSTANT_STRING(L"\\SystemRoot\\system32\\ntdll.dll");
-static UNICODE_STRING FileWriteOnly = RTL_CONSTANT_STRING(L"\\SystemRoot\\kmtest-MmSection.txt");
+static UNICODE_STRING FileReadOnlyPath = RTL_CONSTANT_STRING(L"\\SystemRoot\\system32\\ntdll.dll");
+static UNICODE_STRING WritableFilePath = RTL_CONSTANT_STRING(L"\\SystemRoot\\kmtest-MmSection.txt");
 static OBJECT_ATTRIBUTES NtdllObject;
 static OBJECT_ATTRIBUTES KmtestFileObject;
 
@@ -22,14 +22,14 @@ static OBJECT_ATTRIBUTES KmtestFileObject;
     {                                                                                                                                                       \
         Status = ZwCreateSection(&Handle, DesiredAccess, Attributes, &Size, SectionPageProtection, AllocationAttributes, FileHandle);                       \
         ok_eq_hex(Status, RetStatus);                                                                                                                       \
-        if(Handle != NULL)                                                                                                                                  \
+        if (NT_SUCCESS(Status))                                                                                                                             \
         {                                                                                                                                                   \
                                                                                                                                                             \
           if (CloseRetStatus != NO_HANDLE_CLOSE)                                                                                                            \
             {                                                                                                                                               \
                 Status = ZwClose(Handle);                                                                                                                   \
                 Handle = NULL;                                                                                                                              \
-                if(CloseRetStatus != IGNORE) ok_eq_hex(Status, CloseRetStatus);                                                                             \
+                if (CloseRetStatus != IGNORE) ok_eq_hex(Status, CloseRetStatus);                                                                            \
             }                                                                                                                                               \
         }                                                                                                                                                   \
     } while (0)                                                                                                                                             \
@@ -189,6 +189,9 @@ SimpleErrorChecks(HANDLE FileHandleReadOnly, HANDLE FileHandleWriteOnly)
     MaximumSize.QuadPart = 0;
     CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_READONLY, SEC_COMMIT, FileHandleReadOnly, STATUS_SUCCESS, STATUS_SUCCESS);
     
+    //allocation type
+    CREATE_SECTION(Section, SECTION_MAP_READ, &ObjectAttributesWriteOnly, MaximumSize, PAGE_WRITECOPY, SEC_IMAGE, FileHandleWriteOnly, STATUS_INVALID_IMAGE_NOT_MZ, STATUS_SUCCESS);
+
     //PAGE PROTECTION
   /*  CREATE_SECTION(Section, SECTION_ALL_ACCESS, &ObjectAttributesReadOnly, MaximumSize, PAGE_READWRITE, SEC_COMMIT, FileHandleReadOnly, STATUS_INVALID_PAGE_PROTECTION, IGNORE);
     CREATE_SECTION(Section, SECTION_ALL_ACCESS, &ObjectAttributesReadOnly, MaximumSize, PAGE_EXECUTE_READWRITE, SEC_COMMIT, FileHandleReadOnly, STATUS_INVALID_PAGE_PROTECTION, IGNORE);
@@ -263,8 +266,8 @@ START_TEST(ZwCreateSection)
     HANDLE FileHandleReadOnly = NULL;
     HANDLE FileHandleWriteOnly = NULL;
 
-    InitializeObjectAttributes(&NtdllObject, &FileReadOnly, (OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE), NULL, NULL);
-    InitializeObjectAttributes(&KmtestFileObject, &FileWriteOnly, (OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE), NULL, NULL);
+    InitializeObjectAttributes(&NtdllObject, &FileReadOnlyPath, (OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE), NULL, NULL);
+    InitializeObjectAttributes(&KmtestFileObject, &WritableFilePath, (OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE), NULL, NULL);
     KmtInitTestFiles(&FileHandleReadOnly, &FileHandleWriteOnly);
 
     SimpleErrorChecks(FileHandleReadOnly, FileHandleWriteOnly); 

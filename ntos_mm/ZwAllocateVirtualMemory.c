@@ -13,6 +13,10 @@
 #define IGNORE -1
 #define PAGE_NOPROT 0x0 //MEM_RESERVE has this type of "protection"
 
+/* These are being used in ZwMapViewOfSection as well */
+const char TestString[] = "TheLongBrownFoxJumpedTheWhiteRabbitTheLongBrownFoxJumpedTheWhiteRabbitTheLongBrownFoxJumpedTheWhiteRabbitTheLongBrownFoxJumpedTheWhiteRabbitTheLongBrownFoxJumpedTheWhiteRabbitTheLongBrownFoxJumpedThe";
+const SIZE_T TestStringSize = sizeof(TestString);
+
 VOID Test_ZwAllocateVirtualMemory(VOID);
 
 typedef struct _TEST_CONTEXT 
@@ -37,20 +41,7 @@ typedef struct _TEST_CONTEXT
         RegionSize = DEFAULT_ALLOC_SIZE;                                                                                   \
     } while (0)                                                                                                            \
 
-#define Test_NtQueryVirtualMemory(BaseAddress, Size, AllocationType, ProtectionType)            \
-    do {                                                                                        \
-           PKMT_RESPONSE NtQueryTest = KmtUserModeCallback(QueryVirtualMemory, BaseAddress);    \
-           if (NtQueryTest != NULL)                                                             \
-           {                                                                                    \
-                ok_eq_hex(NtQueryTest->MemInfo.Protect, ProtectionType);                        \
-                ok_eq_hex(NtQueryTest->MemInfo.State, AllocationType);                          \
-                ok_eq_size(NtQueryTest->MemInfo.RegionSize, Size);                              \
-                KmtFreeCallbackResponse(NtQueryTest);                                           \
-           }                                                                                    \
-    } while (0)                                                                                 \
 
-const char TestString[] = "TheLongBrownFoxJumpedTheWhiteRabbitTheLongBrownFoxJumpedTheWhiteRabbitTheLongBrownFoxJumpedTheWhiteRabbitTheLongBrownFoxJumpedTheWhiteRabbitTheLongBrownFoxJumpedTheWhiteRabbitTheLongBrownFoxJumpedThe";
-const SIZE_T TestStringSize = sizeof(TestString);
 
 static 
 BOOLEAN 
