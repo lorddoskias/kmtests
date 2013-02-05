@@ -13,7 +13,7 @@
 
 static UNICODE_STRING FileReadOnlyPath = RTL_CONSTANT_STRING(L"\\SystemRoot\\system32\\ntdll.dll");
 static UNICODE_STRING NtosImgPath = RTL_CONSTANT_STRING(L"\\SystemRoot\\system32\\ntoskrnl.exe");
-static UNICODE_STRING WritableFilePath = RTL_CONSTANT_/*S*/TRING(L"\\SystemRoot\\kmtest-MmSection.txt");
+static UNICODE_STRING WritableFilePath = RTL_CONSTANT_STRING(L"\\SystemRoot\\kmtest-MmSection.txt");
 static UNICODE_STRING SharedSectionName = RTL_CONSTANT_STRING(L"\\BaseNamedObjects\\kmtest-SharedSection");
 extern const char TestString[];
 extern const SIZE_T TestStringSize;
@@ -309,14 +309,61 @@ CompareFileContents(HANDLE FileHandle, SIZE_T BufferLength, PVOID Buffer)
     return Match;
 }
 
+
+static 
+VOID
+NTAPI
+SystemProcessWorker(PVOID StartContext)
+{
+    NTSTATUS Status;
+    PVOID BaseAddress;
+    HANDLE SectionHandle;
+    SIZE_T ViewSize;
+    SIZE_T Match;
+    LARGE_INTEGER SectionOffset;
+    OBJECT_ATTRIBUTES ObjectAttributes;
+
+    UNREFERENCED_PARAMETER(StartContext);
+
+    BaseAddress = NULL;
+    ViewSize = TestStringSize;
+    SectionOffset.QuadPart = 0;
+
+    InitializeObjectAttributes(&ObjectAttributes, &SharedSectionName, (OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE), NULL, NULL);
+    Status = ZwOpenSection(&SectionHandle, SECTION_ALL_ACCESS, &ObjectAttributes);
+    ok_eq_hex(Status, STATUS_SUCCESS);
+
+    if (NT_SUCCESS(Status))
+    {
+        Status = ZwMapViewOfSection(SectionHandle, ZwCurrentProcess(), &BaseAddress, 0, TestStringSize, &SectionOffset, &ViewSize, ViewUnmap, 0, PAGE_READWRITE);
+        ok(NT_SUCCESS(Status), "Error mapping page file view in system process. Error = %p\n", Status);
+
+        if (NT_SUCCESS(Status))
+        {
+            Match = RtlCompareMemory(BaseAddress, TestString, TestStringSize);
+            ok_eq_size(Match, TestStringSize);
+
+            RtlCopyMemory(BaseAddress, NEW_CONTENT, NEW_CONTENT_LEN);
+            ZwUnmapViewOfSection(ZwCurrentProcess(), BaseAddress);
+        }
+
+        ZwClose(SectionHandle);
+    }
+
+    PsTerminateSystemThread(STATUS_SUCCESS);
+}
+
+
 static 
 VOID
 BehaviorChecks(HANDLE FileHandleReadOnly, HANDLE FileHandleWriteOnly)
 {
     NTSTATUS Status;
     PVOID BaseAddress = NULL;
+    PVOID ThreadObject;
     HANDLE ReadOnlySectionHandle;
     HANDLE WriteSectionHandle;
+    HANDLE SysThreadHandle;
     OBJECT_ATTRIBUTES ObjectAttributes;
     LARGE_INTEGER SectionOffset;
     LARGE_INTEGER MaximumSize;
@@ -351,11 +398,35 @@ BehaviorChecks(HANDLE FileHandleReadOnly, HANDLE FileHandleWriteOnly)
         //bring everything back to normal
         RtlCopyMemory(BaseAddress, TestString, TestStringSize);
 
+        //Initiate an external thread to modify the file
+        InitializeObjectAttributes(&ObjectAttributes, NULL, OBJ_KERNEL_HANDLE, NULL, NULL);
+        Status = PsCreateSystemThread(&SysThreadHandle, STANDARD_RIGHTS_ALL, &ObjectAttributes, NULL, NULL, SystemProcessWorker, NULL);
+        if (NT_SUCCESS(Status)) 
+        {
+            Status = ObReferenceObjectByHandle(SysThreadHandle, THREAD_ALL_ACCESS, PsThreadType, KernelMode, &ThreadObject, NULL);
+            ok(NT_SUCCESS(Status), "Error getting reference to System thread when testing file-backed section\n");
+            if (NT_SUCCESS(Status))
+            {
+                //wait until the system thread actually terminates 
+                KeWaitForSingleObject(ThreadObject, Executive, KernelMode, FALSE, NULL);
+
+                //no longer need the thread object
+                ObDereferenceObject(ThreadObject);
+
+                //test for bi-directional access to the shared page file
+                Match = RtlCompareMemory(BaseAddress, NEW_CONTENT, NEW_CONTENT_LEN);
+                ok_eq_size(Match, NEW_CONTENT_LEN);
+
+                //bring everything back to normal, again
+                RtlCopyMemory(BaseAddress, TestString, TestStringSize);
+            }
+        }
+
         ZwUnmapViewOfSection(ZwCurrentProcess(), BaseAddress);
 
     }
 
-    //Try to write to read-only section
+    //Try to write to read-only mapped view
     BaseAddress = NULL;
     ViewSize = 0;
     SectionOffset.QuadPart = 0;
@@ -393,50 +464,6 @@ BehaviorChecks(HANDLE FileHandleReadOnly, HANDLE FileHandleWriteOnly)
     }
  
     ZwClose(WriteSectionHandle);
-}
-
-
-static 
-VOID
-NTAPI
-SystemProcessWorker(PVOID StartContext)
-{
-    NTSTATUS Status;
-    PVOID BaseAddress;
-    HANDLE SectionHandle;
-    SIZE_T ViewSize;
-    SIZE_T Match;
-    LARGE_INTEGER SectionOffset;
-    OBJECT_ATTRIBUTES ObjectAttributes;
-
-    UNREFERENCED_PARAMETER(StartContext);
-
-    BaseAddress = NULL;
-    ViewSize = TestStringSize;
-    SectionOffset.QuadPart = 0;
-    
-    InitializeObjectAttributes(&ObjectAttributes, &SharedSectionName, (OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE), NULL, NULL);
-    Status = ZwOpenSection(&SectionHandle, SECTION_ALL_ACCESS, &ObjectAttributes);
-    ok_eq_hex(Status, STATUS_SUCCESS);
-
-    if (NT_SUCCESS(Status))
-    {
-        Status = ZwMapViewOfSection(SectionHandle, ZwCurrentProcess(), &BaseAddress, 0, TestStringSize, &SectionOffset, &ViewSize, ViewUnmap, 0, PAGE_READWRITE);
-        ok(NT_SUCCESS(Status), "Error mapping page file view in system process. Error = %p\n", Status);
-
-        if (NT_SUCCESS(Status))
-        {
-            Match = RtlCompareMemory(BaseAddress, TestString, TestStringSize);
-            ok_eq_size(Match, TestStringSize);
-            
-            RtlCopyMemory(BaseAddress, NEW_CONTENT, NEW_CONTENT_LEN);
-            ZwUnmapViewOfSection(ZwCurrentProcess(), BaseAddress);
-        }
-
-        ZwClose(SectionHandle);
-    }
-
-    PsTerminateSystemThread(STATUS_SUCCESS);
 }
 
 
@@ -488,11 +515,14 @@ PageFileBehaviorChecks()
             if (NT_SUCCESS(Status)) 
             {
                  Status = ObReferenceObjectByHandle(SysThreadHandle, THREAD_ALL_ACCESS, PsThreadType, KernelMode, &ThreadObject, NULL);
-
+                 ok(NT_SUCCESS(Status), "Error getting reference to System thread when testing pagefile-backed section\n");
                  if (NT_SUCCESS(Status))
                  {
                      //wait until the system thread actually terminates 
                      KeWaitForSingleObject(ThreadObject, Executive, KernelMode, FALSE, NULL);
+
+                     //no longer need the thread object
+                     ObDereferenceObject(ThreadObject);
 
                      //test for bi-directional access to the shared page file
                      Match = RtlCompareMemory(BaseAddress, NEW_CONTENT, NEW_CONTENT_LEN);
