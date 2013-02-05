@@ -9,11 +9,11 @@
 
 #define IGNORE -99
 #define NEW_CONTENT "NewContent"
-#define NEW_CONTENT_LEN 10
+#define NEW_CONTENT_LEN sizeof(NEW_CONTENT)
 
 static UNICODE_STRING FileReadOnlyPath = RTL_CONSTANT_STRING(L"\\SystemRoot\\system32\\ntdll.dll");
 static UNICODE_STRING NtosImgPath = RTL_CONSTANT_STRING(L"\\SystemRoot\\system32\\ntoskrnl.exe");
-static UNICODE_STRING WritableFilePath = RTL_CONSTANT_STRING(L"\\SystemRoot\\kmtest-MmSection.txt");
+static UNICODE_STRING WritableFilePath = RTL_CONSTANT_/*S*/TRING(L"\\SystemRoot\\kmtest-MmSection.txt");
 static UNICODE_STRING SharedSectionName = RTL_CONSTANT_STRING(L"\\BaseNamedObjects\\kmtest-SharedSection");
 extern const char TestString[];
 extern const SIZE_T TestStringSize;
@@ -321,7 +321,6 @@ BehaviorChecks(HANDLE FileHandleReadOnly, HANDLE FileHandleWriteOnly)
     LARGE_INTEGER SectionOffset;
     LARGE_INTEGER MaximumSize;
     SIZE_T Match;
-    char *String = NEW_CONTENT;
     SIZE_T ViewSize = 0;
 
     InitializeObjectAttributes(&ObjectAttributes, &SharedSectionName, (OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE), NULL, NULL);
@@ -340,13 +339,13 @@ BehaviorChecks(HANDLE FileHandleReadOnly, HANDLE FileHandleWriteOnly)
         ok_eq_size(Match, TestStringSize);
 
         //now check writing to section
-        RtlCopyMemory(BaseAddress, String, NEW_CONTENT_LEN);
+        RtlCopyMemory(BaseAddress, NEW_CONTENT, NEW_CONTENT_LEN);
 
-        Match = RtlCompareMemory(BaseAddress, String, NEW_CONTENT_LEN);
+        Match = RtlCompareMemory(BaseAddress, NEW_CONTENT, NEW_CONTENT_LEN);
         ok_eq_size(Match, NEW_CONTENT_LEN);
 
         //check to see if the contents have been flushed to the actual file on disk.  
-        Match = CompareFileContents(FileHandleWriteOnly, NEW_CONTENT_LEN, String);
+        Match = CompareFileContents(FileHandleWriteOnly, NEW_CONTENT_LEN, NEW_CONTENT);
         ok_eq_size(Match, NEW_CONTENT_LEN);
 
         //bring everything back to normal
@@ -370,7 +369,7 @@ BehaviorChecks(HANDLE FileHandleReadOnly, HANDLE FileHandleWriteOnly)
        ok_eq_size(Match, TestStringSize);
 
         KmtStartSeh()
-            RtlCopyMemory(BaseAddress, String, 10);
+            RtlCopyMemory(BaseAddress, NEW_CONTENT, NEW_CONTENT_LEN);
         KmtEndSeh(STATUS_ACCESS_VIOLATION);
 
         ZwUnmapViewOfSection(ZwCurrentProcess(), BaseAddress);
@@ -408,14 +407,12 @@ SystemProcessWorker(PVOID StartContext)
     SIZE_T ViewSize;
     SIZE_T Match;
     LARGE_INTEGER SectionOffset;
-    char *String;
     OBJECT_ATTRIBUTES ObjectAttributes;
 
     UNREFERENCED_PARAMETER(StartContext);
 
     BaseAddress = NULL;
     ViewSize = TestStringSize;
-    String = NEW_CONTENT;
     SectionOffset.QuadPart = 0;
     
     InitializeObjectAttributes(&ObjectAttributes, &SharedSectionName, (OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE), NULL, NULL);
@@ -432,7 +429,7 @@ SystemProcessWorker(PVOID StartContext)
             Match = RtlCompareMemory(BaseAddress, TestString, TestStringSize);
             ok_eq_size(Match, TestStringSize);
             
-            RtlCopyMemory(BaseAddress, String, NEW_CONTENT_LEN);
+            RtlCopyMemory(BaseAddress, NEW_CONTENT, NEW_CONTENT_LEN);
             ZwUnmapViewOfSection(ZwCurrentProcess(), BaseAddress);
         }
 
@@ -447,7 +444,6 @@ static
 VOID 
 PageFileBehaviorChecks() 
 {
-
     NTSTATUS Status;
     LARGE_INTEGER MaxSectionSize;
     LARGE_INTEGER SectionOffset;
@@ -456,7 +452,6 @@ PageFileBehaviorChecks()
     SIZE_T CommitSize;
     SIZE_T ViewSize;
     SIZE_T Match;
-    char *String;
     PVOID ThreadObject;
     OBJECT_ATTRIBUTES ObjectAttributes;
 
@@ -467,7 +462,6 @@ PageFileBehaviorChecks()
     BaseAddress = NULL;
     CommitSize = TestStringSize;
     ViewSize = TestStringSize;
-    String = NEW_CONTENT;
     InitializeObjectAttributes(&ObjectAttributes, &SharedSectionName, (OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE), NULL, NULL);
 
     //test memory sharing between 2 different processes
@@ -501,7 +495,7 @@ PageFileBehaviorChecks()
                      KeWaitForSingleObject(ThreadObject, Executive, KernelMode, FALSE, NULL);
 
                      //test for bi-directional access to the shared page file
-                     Match = RtlCompareMemory(BaseAddress, String, NEW_CONTENT_LEN);
+                     Match = RtlCompareMemory(BaseAddress, NEW_CONTENT, NEW_CONTENT_LEN);
                      ok_eq_size(Match, NEW_CONTENT_LEN);
                  }
             }
