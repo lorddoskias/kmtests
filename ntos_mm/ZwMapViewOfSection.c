@@ -47,6 +47,15 @@ static OBJECT_ATTRIBUTES NtoskrnlFileObject;
         }                                                                           \
     } while (0)                                                                     \
 
+#define CheckObject(Handle, Pointers, Handles) do                   \
+{                                                                   \
+    PUBLIC_OBJECT_BASIC_INFORMATION ObjectInfo;                     \
+    Status = ZwQueryObject(Handle, ObjectBasicInformation,          \
+    &ObjectInfo, sizeof ObjectInfo, NULL);                          \
+    ok_eq_hex(Status, STATUS_SUCCESS);                              \
+    ok_eq_ulong(ObjectInfo.PointerCount, Pointers);                 \
+    ok_eq_ulong(ObjectInfo.HandleCount, Handles);                   \
+} while (0)                                                         \
 
 static 
 VOID
@@ -58,14 +67,14 @@ KmtInitTestFiles(PHANDLE ReadOnlyFile, PHANDLE WriteOnlyFile, PHANDLE Executable
     UCHAR FileData = 0;
 
     //INIT THE READ-ONLY FILE
-    Status = ZwCreateFile(ReadOnlyFile, ( GENERIC_READ | GENERIC_EXECUTE ), &NtdllObject, &IoStatusBlock, NULL, FILE_ATTRIBUTE_NORMAL, FILE_SHARE_READ, FILE_OPEN, FILE_NON_DIRECTORY_FILE, NULL, 0);
+    Status = ZwCreateFile(ReadOnlyFile, GENERIC_READ, &NtdllObject, &IoStatusBlock, NULL, FILE_ATTRIBUTE_NORMAL, FILE_SHARE_READ, FILE_OPEN, FILE_NON_DIRECTORY_FILE, NULL, 0);
     ok_eq_hex(Status, STATUS_SUCCESS);
     ok(*ReadOnlyFile != NULL, "Couldn't acquire READONLY handle\n");
 
     //INIT THE EXECUTABLE FILE
-    Status = Status = ZwCreateFile(ExecutableFile, ( GENERIC_READ | GENERIC_EXECUTE ), &NtdllObject, &IoStatusBlock, NULL, FILE_ATTRIBUTE_NORMAL, FILE_SHARE_READ, FILE_OPEN, FILE_NON_DIRECTORY_FILE, NULL, 0);
+    Status = ZwCreateFile(ExecutableFile, GENERIC_EXECUTE, &NtdllObject, &IoStatusBlock, NULL, FILE_ATTRIBUTE_NORMAL, FILE_SHARE_READ, FILE_OPEN, FILE_NON_DIRECTORY_FILE, NULL, 0);
     ok_eq_hex(Status, STATUS_SUCCESS);
-    ok(*ExecutableFile != NULL, "Couldn't acquire READONLY handle\n");
+    ok(*ExecutableFile != NULL, "Couldn't acquire EXECUTE handle\n");
 
     //INIT THE WRITE-ONLY FILE
     //TODO: Delete the file when the tests are all executed
@@ -331,11 +340,13 @@ SystemProcessWorker(PVOID StartContext)
 
     InitializeObjectAttributes(&ObjectAttributes, &SharedSectionName, (OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE), NULL, NULL);
     Status = ZwOpenSection(&SectionHandle, SECTION_ALL_ACCESS, &ObjectAttributes);
+    CheckObject(SectionHandle, 4, 2);
     ok_eq_hex(Status, STATUS_SUCCESS);
 
     if (NT_SUCCESS(Status))
     {
         Status = ZwMapViewOfSection(SectionHandle, ZwCurrentProcess(), &BaseAddress, 0, TestStringSize, &SectionOffset, &ViewSize, ViewUnmap, 0, PAGE_READWRITE);
+        CheckObject(SectionHandle, 4, 2);
         ok(NT_SUCCESS(Status), "Error mapping page file view in system process. Error = %p\n", Status);
 
         if (NT_SUCCESS(Status))
@@ -345,6 +356,7 @@ SystemProcessWorker(PVOID StartContext)
 
             RtlCopyMemory(BaseAddress, NEW_CONTENT, NEW_CONTENT_LEN);
             ZwUnmapViewOfSection(ZwCurrentProcess(), BaseAddress);
+            CheckObject(SectionHandle, 4, 2);
         }
 
         ZwClose(SectionHandle);
@@ -375,10 +387,12 @@ BehaviorChecks(HANDLE FileHandleReadOnly, HANDLE FileHandleWriteOnly)
     SectionOffset.QuadPart = 0;
 
     Status = ZwCreateSection(&WriteSectionHandle, SECTION_ALL_ACCESS, &ObjectAttributes, &MaximumSize, PAGE_READWRITE, SEC_COMMIT, FileHandleWriteOnly);
+    CheckObject(WriteSectionHandle, 3, 1);
     ok(NT_SUCCESS(Status), "Error creating write section from file. Error = %p\n", Status); 
 
     //check for section reading/writing by comparing section content to a well-known value.
     Status = ZwMapViewOfSection(WriteSectionHandle, ZwCurrentProcess() ,&BaseAddress, 0, 0, &SectionOffset, &ViewSize, ViewUnmap, 0, PAGE_READWRITE);
+    CheckObject(WriteSectionHandle, 3, 1);
     ok(NT_SUCCESS(Status), "Error mapping view with READ/WRITE priv. Error = %p\n", Status);
     if (NT_SUCCESS(Status))
     {
@@ -493,11 +507,13 @@ PageFileBehaviorChecks()
 
     //test memory sharing between 2 different processes
     Status = ZwCreateSection(&PageFileSectionHandle, SECTION_ALL_ACCESS, &ObjectAttributes, &MaxSectionSize, PAGE_READWRITE, SEC_COMMIT, NULL);
+    CheckObject(PageFileSectionHandle, 3, 1);
     ok(NT_SUCCESS(Status), "Error creating page file section. Error = %p\n", Status);
 
     if (NT_SUCCESS(Status))
     {
         Status = ZwMapViewOfSection(PageFileSectionHandle, ZwCurrentProcess(), &BaseAddress, 0, TestStringSize, &SectionOffset, &ViewSize, ViewUnmap, 0, PAGE_READWRITE);
+        CheckObject(PageFileSectionHandle, 3, 1);
         ok(NT_SUCCESS(Status), "Error mapping page file view. Error = %p\n", Status);
 
         //check also the SEC_COMMIT flag 
@@ -553,10 +569,6 @@ PageFileBehaviorChecks()
         ZwUnmapViewOfSection(ZwCurrentProcess(), BaseAddress);
         ZwClose(PageFileSectionHandle);
     }
-
-
-
-
 }
 
 
@@ -583,6 +595,9 @@ START_TEST(ZwMapViewOfSection)
 
     if(FileHandleWriteOnly)
         ZwClose(FileHandleWriteOnly);
+
+    if(ExecutableFileHandle)
+        ZwClose(ExecutableFileHandle);
 
 }
 
