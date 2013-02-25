@@ -14,9 +14,10 @@ extern const char TestString[];
 extern const SIZE_T TestStringSize;
 static UNICODE_STRING FileReadOnlyPath = RTL_CONSTANT_STRING(L"\\SystemRoot\\system32\\ntdll.dll");
 static UNICODE_STRING WritableFilePath = RTL_CONSTANT_STRING(L"\\SystemRoot\\kmtest-MmSection.txt");
+static UNICODE_STRING NtosImgPath = RTL_CONSTANT_STRING(L"\\SystemRoot\\system32\\calc.exe");
 static OBJECT_ATTRIBUTES NtdllObject;
 static OBJECT_ATTRIBUTES KmtestFileObject;
-
+static OBJECT_ATTRIBUTES NtoskrnlFileObject;
 
 #define CREATE_SECTION(Handle, DesiredAccess, Attributes, Size, SectionPageProtection, AllocationAttributes, FileHandle,  RetStatus, CloseRetStatus)  do    \
     {                                                                                                                                                       \
@@ -34,6 +35,18 @@ static OBJECT_ATTRIBUTES KmtestFileObject;
         }                                                                                                                                                   \
     } while (0)                                                                                                                                             \
 
+#define TestMapView(SectionHandle, ProcessHandle, BaseAddress2, ZeroBits, CommitSize, SectionOffset, ViewSize2, InheritDisposition, AllocationType, Win32Protect, MapStatus, UnmapStatus) do    \
+{                                                                                                                                                                                           \
+    Status = ZwMapViewOfSection(SectionHandle, ProcessHandle, BaseAddress2, ZeroBits, CommitSize, SectionOffset, ViewSize2, InheritDisposition, AllocationType, Win32Protect);              \
+    ok_eq_hex(Status, MapStatus);                                           \
+    if (NT_SUCCESS(Status))                                                 \
+{                                                                           \
+    Status = ZwUnmapViewOfSection(ProcessHandle, BaseAddress);              \
+    if(UnmapStatus != IGNORE) ok_eq_hex(Status, UnmapStatus);               \
+    *BaseAddress2 = NULL;                                                   \
+    *ViewSize2 = 0;                                                         \
+}                                                                           \
+} while (0)                                                                 \
 
 #define CheckObject(Handle, Pointers, Handles) do                   \
 {                                                                   \
@@ -61,9 +74,184 @@ static OBJECT_ATTRIBUTES KmtestFileObject;
     }                                                                       \
 } while (0)
 
+static
+VOID
+FileSectionViewPermissionCheck(HANDLE ReadOnlyFile, HANDLE WriteOnlyFile, HANDLE ExecutableFile)
+{
+    NTSTATUS Status;
+    HANDLE SectionHandle = NULL;
+    PVOID BaseAddress;
+    SIZE_T ViewSize = 0;
+    LARGE_INTEGER MaximumSize;
+
+    MaximumSize.QuadPart = TestStringSize;
+
+    //READ-ONLY FILE COMBINATIONS
+    CREATE_SECTION(SectionHandle, SECTION_MAP_READ, NULL, MaximumSize, PAGE_READONLY, SEC_COMMIT, ReadOnlyFile, STATUS_SUCCESS, NO_HANDLE_CLOSE);
+    TestMapView(SectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READWRITE, STATUS_SECTION_PROTECTION, STATUS_SUCCESS);
+    TestMapView(SectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READONLY, STATUS_SUCCESS, STATUS_SUCCESS);
+    TestMapView(SectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_EXECUTE, STATUS_SECTION_PROTECTION, STATUS_SUCCESS);
+    ZwClose(SectionHandle);
+
+    CREATE_SECTION(SectionHandle, SECTION_MAP_READ, NULL, MaximumSize, PAGE_READWRITE, SEC_COMMIT, ReadOnlyFile, STATUS_SUCCESS, NO_HANDLE_CLOSE);
+    TestMapView(SectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READWRITE, STATUS_SUCCESS, STATUS_SUCCESS);
+    TestMapView(SectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READONLY, STATUS_SUCCESS, STATUS_SUCCESS);
+    TestMapView(SectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_EXECUTE, STATUS_SECTION_PROTECTION, STATUS_SUCCESS);
+    ZwClose(SectionHandle);
+
+    CREATE_SECTION(SectionHandle, SECTION_MAP_READ, NULL, MaximumSize, PAGE_EXECUTE, SEC_COMMIT, ReadOnlyFile, STATUS_SUCCESS, NO_HANDLE_CLOSE);
+    TestMapView(SectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READWRITE, STATUS_SECTION_PROTECTION, STATUS_SUCCESS);
+    TestMapView(SectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READONLY, STATUS_SECTION_PROTECTION, STATUS_SUCCESS);
+    TestMapView(SectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_EXECUTE, STATUS_SUCCESS, STATUS_SUCCESS);
+    ZwClose(SectionHandle);
+
+    CREATE_SECTION(SectionHandle, SECTION_MAP_READ, NULL, MaximumSize, PAGE_WRITECOPY, SEC_COMMIT, ReadOnlyFile, STATUS_SUCCESS, NO_HANDLE_CLOSE);
+    TestMapView(SectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READWRITE, STATUS_SECTION_PROTECTION, STATUS_SUCCESS);
+    TestMapView(SectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READONLY, STATUS_SUCCESS, STATUS_SUCCESS);
+    TestMapView(SectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_EXECUTE, STATUS_SECTION_PROTECTION, STATUS_SUCCESS);
+    ZwClose(SectionHandle);
+
+    CREATE_SECTION(SectionHandle, SECTION_MAP_WRITE, NULL, MaximumSize, PAGE_READONLY, SEC_COMMIT, ReadOnlyFile, STATUS_SUCCESS, NO_HANDLE_CLOSE);
+    TestMapView(SectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READWRITE, STATUS_SECTION_PROTECTION, STATUS_SUCCESS);
+    TestMapView(SectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READONLY, STATUS_SUCCESS, STATUS_SUCCESS);
+    TestMapView(SectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_EXECUTE, STATUS_SECTION_PROTECTION, STATUS_SUCCESS);
+    ZwClose(SectionHandle);
+
+    CREATE_SECTION(SectionHandle, SECTION_MAP_WRITE, NULL, MaximumSize, PAGE_READWRITE, SEC_COMMIT, ReadOnlyFile, STATUS_SUCCESS, NO_HANDLE_CLOSE);
+    TestMapView(SectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READWRITE, STATUS_SUCCESS, STATUS_SUCCESS);
+    TestMapView(SectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READONLY, STATUS_SUCCESS, STATUS_SUCCESS);
+    TestMapView(SectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_EXECUTE, STATUS_SECTION_PROTECTION, STATUS_SUCCESS);
+    ZwClose(SectionHandle);
+
+    CREATE_SECTION(SectionHandle, SECTION_MAP_WRITE, NULL, MaximumSize, PAGE_EXECUTE, SEC_COMMIT, ReadOnlyFile, STATUS_SUCCESS, NO_HANDLE_CLOSE);
+    TestMapView(SectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READWRITE, STATUS_SECTION_PROTECTION, STATUS_SUCCESS);
+    TestMapView(SectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READONLY, STATUS_SECTION_PROTECTION, STATUS_SUCCESS);
+    TestMapView(SectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_EXECUTE, STATUS_SUCCESS, STATUS_SUCCESS);
+    ZwClose(SectionHandle);
+
+    CREATE_SECTION(SectionHandle, SECTION_MAP_WRITE, NULL, MaximumSize, PAGE_WRITECOPY, SEC_COMMIT, ReadOnlyFile, STATUS_SUCCESS, NO_HANDLE_CLOSE);
+    TestMapView(SectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READWRITE, STATUS_SECTION_PROTECTION, STATUS_SUCCESS);
+    TestMapView(SectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READONLY, STATUS_SUCCESS, STATUS_SUCCESS);
+    TestMapView(SectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_EXECUTE, STATUS_SECTION_PROTECTION, STATUS_SUCCESS);
+    ZwClose(SectionHandle);
+
+    CREATE_SECTION(SectionHandle, SECTION_MAP_EXECUTE, NULL, MaximumSize, PAGE_READONLY, SEC_COMMIT, ReadOnlyFile, STATUS_SUCCESS, NO_HANDLE_CLOSE);
+    TestMapView(SectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READWRITE, STATUS_SECTION_PROTECTION, STATUS_SUCCESS);
+    TestMapView(SectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READONLY, STATUS_SUCCESS, STATUS_SUCCESS);
+    TestMapView(SectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_EXECUTE, STATUS_SECTION_PROTECTION, STATUS_SUCCESS);
+    ZwClose(SectionHandle);
+
+    CREATE_SECTION(SectionHandle, SECTION_MAP_EXECUTE, NULL, MaximumSize, PAGE_READWRITE, SEC_COMMIT, ReadOnlyFile, STATUS_SUCCESS, NO_HANDLE_CLOSE);
+    TestMapView(SectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READWRITE, STATUS_SUCCESS, STATUS_SUCCESS);
+    TestMapView(SectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READONLY, STATUS_SUCCESS, STATUS_SUCCESS);
+    TestMapView(SectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_EXECUTE, STATUS_SECTION_PROTECTION, STATUS_SUCCESS);
+    ZwClose(SectionHandle);
+
+    CREATE_SECTION(SectionHandle, SECTION_MAP_EXECUTE, NULL, MaximumSize, PAGE_EXECUTE, SEC_COMMIT, ReadOnlyFile, STATUS_SUCCESS, NO_HANDLE_CLOSE);
+    TestMapView(SectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READWRITE, STATUS_SECTION_PROTECTION, STATUS_SUCCESS);
+    TestMapView(SectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READONLY, STATUS_SECTION_PROTECTION, STATUS_SUCCESS);
+    TestMapView(SectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_EXECUTE, STATUS_SUCCESS, STATUS_SUCCESS);
+    ZwClose(SectionHandle);
+
+    CREATE_SECTION(SectionHandle, SECTION_MAP_EXECUTE, NULL, MaximumSize, PAGE_WRITECOPY, SEC_COMMIT, ReadOnlyFile, STATUS_SUCCESS, NO_HANDLE_CLOSE);
+    TestMapView(SectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READWRITE, STATUS_SECTION_PROTECTION, STATUS_SUCCESS);
+    TestMapView(SectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READONLY, STATUS_SUCCESS, STATUS_SUCCESS);
+    TestMapView(SectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_EXECUTE, STATUS_SECTION_PROTECTION, STATUS_SUCCESS);
+    ZwClose(SectionHandle);
+
+    //WRITE-ONLY FILE COMBINATIONS
+    CREATE_SECTION(SectionHandle, SECTION_MAP_READ, NULL, MaximumSize, PAGE_READONLY, SEC_COMMIT, WriteOnlyFile, STATUS_SUCCESS, NO_HANDLE_CLOSE);
+    TestMapView(SectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READWRITE, STATUS_SECTION_PROTECTION, STATUS_SUCCESS);
+    TestMapView(SectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READONLY, STATUS_SUCCESS, STATUS_SUCCESS);
+    TestMapView(SectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_EXECUTE, STATUS_SECTION_PROTECTION, STATUS_SUCCESS);
+    ZwClose(SectionHandle);
+
+    CREATE_SECTION(SectionHandle, SECTION_MAP_READ, NULL, MaximumSize, PAGE_READWRITE, SEC_COMMIT, WriteOnlyFile, STATUS_SUCCESS, NO_HANDLE_CLOSE);
+    TestMapView(SectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READWRITE, STATUS_SUCCESS, STATUS_SUCCESS);
+    TestMapView(SectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READONLY, STATUS_SUCCESS, STATUS_SUCCESS);
+    TestMapView(SectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_EXECUTE, STATUS_SECTION_PROTECTION, STATUS_SUCCESS);
+    ZwClose(SectionHandle);
+
+    CREATE_SECTION(SectionHandle, SECTION_MAP_READ, NULL, MaximumSize, PAGE_EXECUTE, SEC_COMMIT, WriteOnlyFile, STATUS_SUCCESS, NO_HANDLE_CLOSE);
+    TestMapView(SectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READWRITE, STATUS_SECTION_PROTECTION, STATUS_SUCCESS);
+    TestMapView(SectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READONLY, STATUS_SECTION_PROTECTION, STATUS_SUCCESS);
+    TestMapView(SectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_EXECUTE, STATUS_SUCCESS, STATUS_SUCCESS);
+    ZwClose(SectionHandle);
+
+    CREATE_SECTION(SectionHandle, SECTION_MAP_READ, NULL, MaximumSize, PAGE_WRITECOPY, SEC_COMMIT, WriteOnlyFile, STATUS_SUCCESS, NO_HANDLE_CLOSE);
+    TestMapView(SectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READWRITE, STATUS_SECTION_PROTECTION, STATUS_SUCCESS);
+    TestMapView(SectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READONLY, STATUS_SUCCESS, STATUS_SUCCESS);
+    TestMapView(SectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_EXECUTE, STATUS_SECTION_PROTECTION, STATUS_SUCCESS);
+    ZwClose(SectionHandle);
+
+    CREATE_SECTION(SectionHandle, SECTION_MAP_WRITE, NULL, MaximumSize, PAGE_READONLY, SEC_COMMIT, WriteOnlyFile, STATUS_SUCCESS, NO_HANDLE_CLOSE);
+    TestMapView(SectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READWRITE, STATUS_SECTION_PROTECTION, STATUS_SUCCESS);
+    TestMapView(SectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READONLY, STATUS_SUCCESS, STATUS_SUCCESS);
+    TestMapView(SectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_EXECUTE, STATUS_SECTION_PROTECTION, STATUS_SUCCESS);
+    ZwClose(SectionHandle);
+
+    CREATE_SECTION(SectionHandle, SECTION_MAP_WRITE, NULL, MaximumSize, PAGE_READWRITE, SEC_COMMIT, WriteOnlyFile, STATUS_SUCCESS, NO_HANDLE_CLOSE);
+    TestMapView(SectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READWRITE, STATUS_SUCCESS, STATUS_SUCCESS);
+    TestMapView(SectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READONLY, STATUS_SUCCESS, STATUS_SUCCESS);
+    TestMapView(SectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_EXECUTE, STATUS_SECTION_PROTECTION, STATUS_SUCCESS);
+    ZwClose(SectionHandle);
+
+    CREATE_SECTION(SectionHandle, SECTION_MAP_WRITE, NULL, MaximumSize, PAGE_EXECUTE, SEC_COMMIT, WriteOnlyFile, STATUS_SUCCESS, NO_HANDLE_CLOSE);
+    TestMapView(SectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READWRITE, STATUS_SECTION_PROTECTION, STATUS_SUCCESS);
+    TestMapView(SectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READONLY, STATUS_SECTION_PROTECTION, STATUS_SUCCESS);
+    TestMapView(SectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_EXECUTE, STATUS_SUCCESS, STATUS_SUCCESS);
+    ZwClose(SectionHandle);
+
+    CREATE_SECTION(SectionHandle, SECTION_MAP_WRITE, NULL, MaximumSize, PAGE_WRITECOPY, SEC_COMMIT, WriteOnlyFile, STATUS_SUCCESS, NO_HANDLE_CLOSE);
+    TestMapView(SectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READWRITE, STATUS_SECTION_PROTECTION, STATUS_SUCCESS);
+    TestMapView(SectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READONLY, STATUS_SUCCESS, STATUS_SUCCESS);
+    TestMapView(SectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_EXECUTE, STATUS_SECTION_PROTECTION, STATUS_SUCCESS);
+    ZwClose(SectionHandle);
+
+    CREATE_SECTION(SectionHandle, SECTION_MAP_EXECUTE, NULL, MaximumSize, PAGE_READONLY, SEC_COMMIT, WriteOnlyFile, STATUS_SUCCESS, NO_HANDLE_CLOSE);
+    TestMapView(SectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READWRITE, STATUS_SECTION_PROTECTION, STATUS_SUCCESS);
+    TestMapView(SectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READONLY, STATUS_SUCCESS, STATUS_SUCCESS);
+    TestMapView(SectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_EXECUTE, STATUS_SECTION_PROTECTION, STATUS_SUCCESS);
+    ZwClose(SectionHandle);
+
+    CREATE_SECTION(SectionHandle, SECTION_MAP_EXECUTE, NULL, MaximumSize, PAGE_READWRITE, SEC_COMMIT, WriteOnlyFile, STATUS_SUCCESS, NO_HANDLE_CLOSE);
+    TestMapView(SectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READWRITE, STATUS_SUCCESS, STATUS_SUCCESS);
+    TestMapView(SectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READONLY, STATUS_SUCCESS, STATUS_SUCCESS);
+    TestMapView(SectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_EXECUTE, STATUS_SECTION_PROTECTION, STATUS_SUCCESS);
+    ZwClose(SectionHandle);
+
+    CREATE_SECTION(SectionHandle, SECTION_MAP_EXECUTE, NULL, MaximumSize, PAGE_EXECUTE, SEC_COMMIT, WriteOnlyFile, STATUS_SUCCESS, NO_HANDLE_CLOSE);
+    TestMapView(SectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READWRITE, STATUS_SECTION_PROTECTION, STATUS_SUCCESS);
+    TestMapView(SectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READONLY, STATUS_SECTION_PROTECTION, STATUS_SUCCESS);
+    TestMapView(SectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_EXECUTE, STATUS_SUCCESS, STATUS_SUCCESS);
+    ZwClose(SectionHandle);
+
+    CREATE_SECTION(SectionHandle, SECTION_MAP_EXECUTE, NULL, MaximumSize, PAGE_WRITECOPY, SEC_COMMIT, WriteOnlyFile, STATUS_SUCCESS, NO_HANDLE_CLOSE);
+    TestMapView(SectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READWRITE, STATUS_SECTION_PROTECTION, STATUS_SUCCESS);
+    TestMapView(SectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READONLY, STATUS_SUCCESS, STATUS_SUCCESS);
+    TestMapView(SectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_EXECUTE, STATUS_SECTION_PROTECTION, STATUS_SUCCESS);
+    ZwClose(SectionHandle);
+
+    //EXECUTE ONLY FILE 
+    CREATE_SECTION(SectionHandle, SECTION_MAP_READ, NULL, MaximumSize, PAGE_READONLY, SEC_COMMIT, ExecutableFile, STATUS_SUCCESS, STATUS_SUCCESS);
+    CREATE_SECTION(SectionHandle, SECTION_MAP_READ, NULL, MaximumSize, PAGE_READWRITE, SEC_COMMIT, ExecutableFile, STATUS_SUCCESS, STATUS_SUCCESS);
+    CREATE_SECTION(SectionHandle, SECTION_MAP_READ, NULL, MaximumSize, PAGE_EXECUTE, SEC_COMMIT, ExecutableFile, STATUS_SUCCESS, STATUS_SUCCESS);
+    CREATE_SECTION(SectionHandle, SECTION_MAP_READ, NULL, MaximumSize, PAGE_WRITECOPY, SEC_COMMIT, ExecutableFile, STATUS_SUCCESS, STATUS_SUCCESS);
+
+    CREATE_SECTION(SectionHandle, SECTION_MAP_WRITE, NULL, MaximumSize, PAGE_READONLY, SEC_COMMIT, ExecutableFile, STATUS_SUCCESS, STATUS_SUCCESS);
+    CREATE_SECTION(SectionHandle, SECTION_MAP_WRITE, NULL, MaximumSize, PAGE_READWRITE, SEC_COMMIT, ExecutableFile, STATUS_SUCCESS, STATUS_SUCCESS);
+    CREATE_SECTION(SectionHandle, SECTION_MAP_WRITE, NULL, MaximumSize, PAGE_EXECUTE, SEC_COMMIT, ExecutableFile, STATUS_SUCCESS, STATUS_SUCCESS);
+    CREATE_SECTION(SectionHandle, SECTION_MAP_WRITE, NULL, MaximumSize, PAGE_WRITECOPY, SEC_COMMIT, ExecutableFile, STATUS_SUCCESS, STATUS_SUCCESS);
+
+    CREATE_SECTION(SectionHandle, SECTION_MAP_EXECUTE, NULL, MaximumSize, PAGE_READONLY, SEC_COMMIT, ExecutableFile, STATUS_SUCCESS, STATUS_SUCCESS);
+    CREATE_SECTION(SectionHandle, SECTION_MAP_EXECUTE, NULL, MaximumSize, PAGE_READWRITE, SEC_COMMIT, ExecutableFile, STATUS_SUCCESS, STATUS_SUCCESS);
+    CREATE_SECTION(SectionHandle, SECTION_MAP_EXECUTE, NULL, MaximumSize, PAGE_EXECUTE, SEC_COMMIT, ExecutableFile, STATUS_SUCCESS, STATUS_SUCCESS);
+    CREATE_SECTION(SectionHandle, SECTION_MAP_EXECUTE, NULL, MaximumSize, PAGE_WRITECOPY, SEC_COMMIT, ExecutableFile, STATUS_SUCCESS, STATUS_SUCCESS);
+}
+
 static 
 VOID
-KmtInitTestFiles(PHANDLE ReadOnlyFile, PHANDLE WriteOnlyFile) 
+KmtInitTestFiles(PHANDLE ReadOnlyFile, PHANDLE WriteOnlyFile, PHANDLE ExecutableFile) 
 {
     NTSTATUS Status;
     LARGE_INTEGER FileOffset;
@@ -74,6 +262,11 @@ KmtInitTestFiles(PHANDLE ReadOnlyFile, PHANDLE WriteOnlyFile)
     Status = ZwCreateFile(ReadOnlyFile, ( GENERIC_READ | GENERIC_EXECUTE ), &NtdllObject, &IoStatusBlock, NULL, FILE_ATTRIBUTE_NORMAL, FILE_SHARE_READ, FILE_OPEN, FILE_NON_DIRECTORY_FILE, NULL, 0);
     ok_eq_hex(Status, STATUS_SUCCESS);
     ok(*ReadOnlyFile != NULL, "Couldn't acquire READONLY handle\n");
+
+    //INIT THE EXECUTABLE FILE
+    Status = ZwCreateFile(ExecutableFile, GENERIC_EXECUTE, &NtdllObject, &IoStatusBlock, NULL, FILE_ATTRIBUTE_NORMAL, FILE_SHARE_READ, FILE_OPEN, FILE_NON_DIRECTORY_FILE, NULL, 0);
+    ok_eq_hex(Status, STATUS_SUCCESS);
+    ok(*ExecutableFile != NULL, "Couldn't acquire EXECUTE handle\n");
 
     //INIT THE WRITE-ONLY FILE
     //NB: this file is deleted at the end of basic behavior checks
@@ -94,26 +287,27 @@ KmtInitTestFiles(PHANDLE ReadOnlyFile, PHANDLE WriteOnlyFile)
 
 static
 VOID 
-SimpleErrorChecks(HANDLE FileHandleReadOnly, HANDLE FileHandleWriteOnly) 
+SimpleErrorChecks(HANDLE FileHandleReadOnly, HANDLE FileHandleWriteOnly, HANDLE FileHandleExecuteOnly) 
 {
     NTSTATUS Status;
     HANDLE Section = NULL;
-
-    
     OBJECT_ATTRIBUTES ObjectAttributesReadOnly;
     OBJECT_ATTRIBUTES ObjectAttributesWriteOnly;
     OBJECT_ATTRIBUTES InvalidObjectAttributes;
+    IO_STATUS_BLOCK IoStatusBlock;
+    FILE_STANDARD_INFORMATION FileStandardInfo;
     LARGE_INTEGER MaximumSize;
-
     UNICODE_STRING SectReadOnly = RTL_CONSTANT_STRING(L"\\BaseNamedObjects\\KmtTestReadSect");
     UNICODE_STRING SectWriteOnly = RTL_CONSTANT_STRING(L"\\BaseNamedObjects\\KmtTestWriteSect");
     UNICODE_STRING InvalidObjectString = RTL_CONSTANT_STRING(L"THIS/IS/INVALID");
+    
     MaximumSize.QuadPart = TestStringSize; 
 
     InitializeObjectAttributes(&ObjectAttributesReadOnly, &SectReadOnly, (OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE), NULL, NULL);
     InitializeObjectAttributes(&ObjectAttributesWriteOnly, &SectWriteOnly, (OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE), NULL, NULL);
     InitializeObjectAttributes(&InvalidObjectAttributes, &InvalidObjectString, (OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE), NULL, NULL);
 
+    ///////////////////////////////////////////////////////////////////////////////////////
     //PAGE FILE BACKED SECTION
     //DESIRED ACCESS TESTS
     CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_READWRITE, SEC_COMMIT, NULL, STATUS_SUCCESS, STATUS_SUCCESS);
@@ -167,6 +361,8 @@ SimpleErrorChecks(HANDLE FileHandleReadOnly, HANDLE FileHandleWriteOnly)
     CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_READWRITE, (SEC_NOCACHE | SEC_RESERVE), NULL, STATUS_SUCCESS, STATUS_SUCCESS);
     CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_READWRITE, SEC_IMAGE, NULL, STATUS_INVALID_FILE_FOR_SECTION, STATUS_SUCCESS);
 
+
+    /////////////////////////////////////////////////////////////////////////////////////////////
     //NORMAL FILE-BACKED SECTION
 
     //DESIRED ACCESS TESTS 
@@ -191,88 +387,124 @@ SimpleErrorChecks(HANDLE FileHandleReadOnly, HANDLE FileHandleWriteOnly)
 
     MaximumSize.QuadPart = 0;
     CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_READONLY, SEC_COMMIT, FileHandleWriteOnly, STATUS_SUCCESS, STATUS_SUCCESS);
-     
+
+    //SECTION PAGE PROTECTION
+    CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_EXECUTE_READ, SEC_COMMIT, FileHandleWriteOnly, STATUS_SUCCESS, STATUS_SUCCESS);
+    CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_EXECUTE_READWRITE, SEC_COMMIT, FileHandleWriteOnly, STATUS_SUCCESS, STATUS_SUCCESS);
+    CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_EXECUTE_WRITECOPY, SEC_COMMIT, FileHandleWriteOnly, STATUS_SUCCESS, STATUS_SUCCESS);
+    CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_READONLY, SEC_COMMIT, FileHandleWriteOnly, STATUS_SUCCESS, STATUS_SUCCESS);
+    CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, (PAGE_EXECUTE_READ | PAGE_READWRITE), SEC_COMMIT, FileHandleWriteOnly, STATUS_INVALID_PAGE_PROTECTION, IGNORE);
+    CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, (PAGE_READONLY | PAGE_READWRITE), SEC_COMMIT, FileHandleWriteOnly, STATUS_INVALID_PAGE_PROTECTION, IGNORE);
+    CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, (PAGE_WRITECOPY | PAGE_READONLY), SEC_COMMIT, FileHandleWriteOnly, STATUS_INVALID_PAGE_PROTECTION, IGNORE);
+    CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, 0, SEC_COMMIT, FileHandleWriteOnly, STATUS_INVALID_PAGE_PROTECTION, STATUS_SUCCESS);
+    CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, -1, SEC_COMMIT, FileHandleWriteOnly, STATUS_INVALID_PAGE_PROTECTION, STATUS_SUCCESS);
+    
     //allocation type
     CREATE_SECTION(Section, SECTION_MAP_READ, &ObjectAttributesWriteOnly, MaximumSize, PAGE_WRITECOPY, SEC_IMAGE, FileHandleWriteOnly, STATUS_INVALID_IMAGE_NOT_MZ, STATUS_SUCCESS);
+    CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_READWRITE, 0, FileHandleWriteOnly, STATUS_INVALID_PARAMETER_6, STATUS_SUCCESS);
+    CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_READWRITE, (SEC_COMMIT | SEC_RESERVE), FileHandleWriteOnly, STATUS_INVALID_PARAMETER_6, STATUS_SUCCESS);
+    CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_READWRITE, SEC_RESERVE, FileHandleWriteOnly, STATUS_SUCCESS, STATUS_SUCCESS);
+    CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_READWRITE, (SEC_IMAGE | SEC_COMMIT), FileHandleWriteOnly, STATUS_INVALID_PARAMETER_6, STATUS_SUCCESS);
+    CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_READWRITE, -1, FileHandleWriteOnly, STATUS_INVALID_PARAMETER_6, STATUS_SUCCESS);
+    CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_READWRITE, SEC_LARGE_PAGES, FileHandleWriteOnly, STATUS_INVALID_PARAMETER_6, STATUS_SUCCESS);
+    CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_READWRITE, (SEC_LARGE_PAGES | SEC_COMMIT), FileHandleWriteOnly, STATUS_INVALID_PARAMETER_6, STATUS_SUCCESS);
+    CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_READWRITE, SEC_NOCACHE, FileHandleWriteOnly, STATUS_INVALID_PARAMETER_6, STATUS_SUCCESS);
+    CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_READWRITE, (SEC_NOCACHE | SEC_RESERVE | SEC_COMMIT), FileHandleWriteOnly, STATUS_INVALID_PARAMETER_6, STATUS_SUCCESS);
+    CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_READWRITE, (SEC_NOCACHE | SEC_COMMIT), FileHandleWriteOnly, STATUS_SUCCESS, STATUS_SUCCESS);
+    CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_READWRITE, (SEC_NOCACHE | SEC_RESERVE), FileHandleWriteOnly, STATUS_SUCCESS, STATUS_SUCCESS);
+    CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_READWRITE, SEC_IMAGE, FileHandleWriteOnly, STATUS_INVALID_IMAGE_NOT_MZ, STATUS_SUCCESS);
 
-    //PAGE PROTECTION
-  /*  CREATE_SECTION(Section, SECTION_ALL_ACCESS, &ObjectAttributesReadOnly, MaximumSize, PAGE_READWRITE, SEC_COMMIT, FileHandleReadOnly, STATUS_INVALID_PAGE_PROTECTION, IGNORE);
-    CREATE_SECTION(Section, SECTION_ALL_ACCESS, &ObjectAttributesReadOnly, MaximumSize, PAGE_EXECUTE_READWRITE, SEC_COMMIT, FileHandleReadOnly, STATUS_INVALID_PAGE_PROTECTION, IGNORE);
-    CREATE_SECTION(Section, SECTION_ALL_ACCESS, &ObjectAttributesWriteOnly, MaximumSize, PAGE_READONLY, SEC_COMMIT, FileHandleWriteOnly, STATUS_INVALID_PAGE_PROTECTION, IGNORE);
-    CREATE_SECTION(Section, SECTION_ALL_ACCESS, &ObjectAttributesWriteOnly, MaximumSize, PAGE_READWRITE, SEC_COMMIT, FileHandleWriteOnly, STATUS_INVALID_PAGE_PROTECTION, IGNORE);
-    CREATE_SECTION(Section, SECTION_ALL_ACCESS, &ObjectAttributesWriteOnly, MaximumSize, PAGE_EXECUTE_READWRITE, SEC_COMMIT, FileHandleWriteOnly, STATUS_INVALID_PAGE_PROTECTION, IGNORE);
-    CREATE_SECTION(Section, SECTION_ALL_ACCESS, &ObjectAttributesWriteOnly, MaximumSize, PAGE_EXECUTE_READ, SEC_COMMIT, FileHandleWriteOnly, STATUS_INVALID_PAGE_PROTECTION, IGNORE); 
-    CREATE_SECTION(Section, SECTION_ALL_ACCESS, &ObjectAttributesWriteOnly, MaximumSize, PAGE_WRITECOPY, SEC_COMMIT, FileHandleWriteOnly, STATUS_INVALID_PAGE_PROTECTION, IGNORE); 
+    //////////////////////////////////////////////////
+    //EXECUTABLE IMAGE 
+    CREATE_SECTION(Section, SECTION_MAP_READ, &ObjectAttributesWriteOnly, MaximumSize, PAGE_WRITECOPY, SEC_IMAGE, FileHandleExecuteOnly, STATUS_SUCCESS, STATUS_SUCCESS);
+    CREATE_SECTION(Section, SECTION_MAP_EXECUTE, &ObjectAttributesWriteOnly, MaximumSize, PAGE_WRITECOPY, SEC_IMAGE, FileHandleExecuteOnly, STATUS_SUCCESS, STATUS_SUCCESS);
     
-   */ 
+    //object attributes 
+    //DESIRED ACCESS TESTS 
+    CREATE_SECTION(Section, SECTION_ALL_ACCESS, &ObjectAttributesReadOnly, MaximumSize, PAGE_READONLY, SEC_COMMIT, FileHandleExecuteOnly, STATUS_SUCCESS, STATUS_SUCCESS);
+    CREATE_SECTION(Section, SECTION_ALL_ACCESS, &ObjectAttributesWriteOnly, MaximumSize, PAGE_WRITECOPY, SEC_COMMIT, FileHandleExecuteOnly, STATUS_SUCCESS, STATUS_SUCCESS);
+    CREATE_SECTION(Section, SECTION_MAP_WRITE, &ObjectAttributesReadOnly, MaximumSize, PAGE_READONLY, SEC_COMMIT, FileHandleExecuteOnly, STATUS_SUCCESS, STATUS_SUCCESS);
+    CREATE_SECTION(Section, SECTION_MAP_READ, &ObjectAttributesWriteOnly, MaximumSize, PAGE_WRITECOPY, SEC_COMMIT, FileHandleExecuteOnly, STATUS_SUCCESS, STATUS_SUCCESS);
+
+    //Object Attributes
+    CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_READONLY, SEC_COMMIT, FileHandleExecuteOnly, STATUS_SUCCESS, STATUS_SUCCESS);
+    CREATE_SECTION(Section, SECTION_ALL_ACCESS, &InvalidObjectAttributes, MaximumSize, PAGE_READONLY, SEC_COMMIT, FileHandleExecuteOnly, STATUS_OBJECT_PATH_SYNTAX_BAD, STATUS_SUCCESS);
+
+    //MaximumSize
+
+    
+    Status = ZwQueryInformationFile(FileHandleExecuteOnly, &IoStatusBlock, &FileStandardInfo, sizeof(FILE_STANDARD_INFORMATION), FileStandardInformation);
+    if(!skip(NT_SUCCESS(Status), "Cannot query file information"))
+    {
+        //as big as file
+        MaximumSize = FileStandardInfo.AllocationSize;
+        CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_EXECUTE_READ, SEC_IMAGE, FileHandleExecuteOnly, STATUS_SUCCESS, STATUS_SUCCESS);
+
+        //less than file
+        MaximumSize.QuadPart = FileStandardInfo.AllocationSize.QuadPart - 2;
+        CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_EXECUTE_READ, SEC_IMAGE, FileHandleExecuteOnly, STATUS_SUCCESS, STATUS_SUCCESS);
+
+        //larger than file
+        MaximumSize.QuadPart = FileStandardInfo.AllocationSize.QuadPart + 2;
+        CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_EXECUTE_READ, SEC_IMAGE, FileHandleExecuteOnly, STATUS_SUCCESS, STATUS_SUCCESS);
+
+        //0
+        MaximumSize.QuadPart = 0;
+        CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_EXECUTE_READ, SEC_IMAGE, FileHandleExecuteOnly, STATUS_SUCCESS, STATUS_SUCCESS);
+
+        //-1 (very big number)
+        MaximumSize.QuadPart = -1;
+        CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_EXECUTE_READ, SEC_IMAGE, FileHandleExecuteOnly, STATUS_SECTION_TOO_BIG, STATUS_SUCCESS);
+    }
 
 }
 
 static
 VOID
-BasicBehaviorChecks(VOID) 
+BasicBehaviorChecks(HANDLE FileHandle) 
 {
     NTSTATUS Status;
     HANDLE Section = NULL;
-    HANDLE FileHandle;
-    IO_STATUS_BLOCK IoStatusBlock;
     PFILE_OBJECT FileObject;
     LARGE_INTEGER Length;
     Length.QuadPart = TestStringSize;
 
+    //mimic lack of section support for a particular file as well.
+    Status = ObReferenceObjectByHandle(FileHandle, STANDARD_RIGHTS_ALL, IoFileObjectType, KernelMode, &FileObject, NULL);
+    if (!skip(NT_SUCCESS(Status), "Cannot reference object by handle\n"))  
+    {    
 
-    
-    Status = ZwCreateFile(&FileHandle, GENERIC_READ, &KmtestFileObject, &IoStatusBlock, NULL, FILE_ATTRIBUTE_NORMAL, 0, FILE_OPEN, FILE_NON_DIRECTORY_FILE, NULL, 0);    
-    if (NT_SUCCESS(Status))
-    {
-        
-        Status = ObReferenceObjectByHandle(FileHandle, STANDARD_RIGHTS_ALL, IoFileObjectType, KernelMode, &FileObject, NULL);
-        if (NT_SUCCESS(Status))  
-        {    
-            //mimic lack of section support for a particular file as well.
-            PSECTION_OBJECT_POINTERS Pointers = FileObject->SectionObjectPointer;
+        PSECTION_OBJECT_POINTERS Pointers = FileObject->SectionObjectPointer;
 
-            FileObject->SectionObjectPointer = NULL;
-            CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, Length, PAGE_READONLY, SEC_COMMIT, FileHandle, STATUS_INVALID_FILE_FOR_SECTION, IGNORE);
-            FileObject->SectionObjectPointer = Pointers;
-            ObDereferenceObject(FileObject);
-        }
-        ZwClose(FileHandle);
+        FileObject->SectionObjectPointer = NULL;
+        CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, Length, PAGE_READONLY, SEC_COMMIT, FileHandle, STATUS_INVALID_FILE_FOR_SECTION, IGNORE);
+        FileObject->SectionObjectPointer = Pointers;
+        ObDereferenceObject(FileObject);
     }
 
-    //section creation with sizes different than those of the file
-    Status = ZwCreateFile(&FileHandle, GENERIC_READ, &KmtestFileObject, &IoStatusBlock, NULL, FILE_ATTRIBUTE_NORMAL, 0, FILE_OPEN, (FILE_NON_DIRECTORY_FILE | FILE_DELETE_ON_CLOSE), NULL, 0); 
-    if(NT_SUCCESS(Status))
-    {
-       Length.QuadPart = TestStringSize;
-       CREATE_SECTION(Section, (SECTION_ALL_ACCESS), NULL, Length, PAGE_READONLY, SEC_COMMIT, FileHandle, STATUS_SUCCESS, NO_HANDLE_CLOSE);
-       CheckObject(Section, 2, 1);
-       CheckSection(Section, SEC_FILE, Length.QuadPart, STATUS_SUCCESS);
-       ZwClose(Section); //manually close it due to NO_HANDLE_CLOSE in CREATE_SECTION
+    Length.QuadPart = TestStringSize;
+    CREATE_SECTION(Section, (SECTION_ALL_ACCESS), NULL, Length, PAGE_READONLY, SEC_COMMIT, FileHandle, STATUS_SUCCESS, NO_HANDLE_CLOSE);
+    CheckObject(Section, 2, 1);
+    CheckSection(Section, SEC_FILE, Length.QuadPart, STATUS_SUCCESS);
+    ZwClose(Section); //manually close it due to NO_HANDLE_CLOSE in CREATE_SECTION
 
-       //section length should be set to that of file
-       Length.QuadPart = 0;
-       CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, Length, PAGE_READONLY, SEC_COMMIT, FileHandle, STATUS_SUCCESS, NO_HANDLE_CLOSE);
-       CheckSection(Section, SEC_FILE, TestStringSize, STATUS_SUCCESS);
-       ZwClose(Section);
 
-       //create a smaller section than file
-       Length.QuadPart = TestStringSize - 100; 
-       CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, Length, PAGE_READONLY, SEC_COMMIT, FileHandle, STATUS_SUCCESS, NO_HANDLE_CLOSE);
-       CheckSection(Section, SEC_FILE, TestStringSize - 100, STATUS_SUCCESS);
-       ZwClose(Section);
+    //section length should be set to that of file
+    Length.QuadPart = 0;
+    CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, Length, PAGE_READONLY, SEC_COMMIT, FileHandle, STATUS_SUCCESS, NO_HANDLE_CLOSE);
+    CheckSection(Section, SEC_FILE, TestStringSize, STATUS_SUCCESS);
+    ZwClose(Section);
 
-       ZwClose(FileHandle);
-    }
+    //create a smaller section than file
+    Length.QuadPart = TestStringSize - 100; 
+    CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, Length, PAGE_READONLY, SEC_COMMIT, FileHandle, STATUS_SUCCESS, NO_HANDLE_CLOSE);
+    CheckSection(Section, SEC_FILE, TestStringSize - 100, STATUS_SUCCESS);
+    ZwClose(Section);
 
     //check zero-based section
-    Status = ZwCreateFile(&FileHandle, (GENERIC_WRITE | SYNCHRONIZE), &KmtestFileObject, &IoStatusBlock, NULL, FILE_ATTRIBUTE_NORMAL, FILE_SHARE_WRITE, FILE_OVERWRITE_IF, (FILE_NON_DIRECTORY_FILE | FILE_DELETE_ON_CLOSE), NULL, 0);
-    if (NT_SUCCESS(Status))
-    {
-        Length.QuadPart = 0;
-        CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, Length, PAGE_READONLY, SEC_COMMIT, FileHandle, STATUS_MAPPED_FILE_SIZE_ZERO, IGNORE);
-        ZwClose(FileHandle);
-    }
+    Length.QuadPart = 0;
+    CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, Length, PAGE_READONLY, SEC_COMMIT, FileHandle, STATUS_MAPPED_FILE_SIZE_ZERO, IGNORE);
+
 }
 
 
@@ -280,12 +512,19 @@ START_TEST(ZwCreateSection)
 {
     HANDLE FileHandleReadOnly = NULL;
     HANDLE FileHandleWriteOnly = NULL;
+    HANDLE FileHandleExecuteOnly = NULL;
 
     InitializeObjectAttributes(&NtdllObject, &FileReadOnlyPath, (OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE), NULL, NULL);
     InitializeObjectAttributes(&KmtestFileObject, &WritableFilePath, (OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE), NULL, NULL);
-    KmtInitTestFiles(&FileHandleReadOnly, &FileHandleWriteOnly);
+    InitializeObjectAttributes(&NtoskrnlFileObject, &NtosImgPath, (OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE), NULL, NULL);
 
-    SimpleErrorChecks(FileHandleReadOnly, FileHandleWriteOnly); 
+    KmtInitTestFiles(&FileHandleReadOnly, &FileHandleWriteOnly, &FileHandleExecuteOnly);
+
+    //if the next 2 functions have their order reversed then the tests in filesectionviewpermissioncheck fail with 
+    // status_mapped_alignment
+    FileSectionViewPermissionCheck(FileHandleReadOnly, FileHandleWriteOnly, FileHandleExecuteOnly);
+    //SimpleErrorChecks(FileHandleReadOnly, FileHandleWriteOnly, FileHandleExecuteOnly); 
+    //BasicBehaviorChecks(FileHandleWriteOnly);
 
     if(FileHandleReadOnly)
         ZwClose(FileHandleReadOnly);
@@ -293,7 +532,6 @@ START_TEST(ZwCreateSection)
     if(FileHandleWriteOnly)
         ZwClose(FileHandleWriteOnly);
 
-    BasicBehaviorChecks();
-
-    
+    if(FileHandleExecuteOnly)
+        ZwClose(FileHandleExecuteOnly);
 }
