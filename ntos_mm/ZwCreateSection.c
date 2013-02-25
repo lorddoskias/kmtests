@@ -80,7 +80,7 @@ FileSectionViewPermissionCheck(HANDLE ReadOnlyFile, HANDLE WriteOnlyFile, HANDLE
 {
     NTSTATUS Status;
     HANDLE SectionHandle = NULL;
-    PVOID BaseAddress;
+    PVOID BaseAddress = NULL;
     SIZE_T ViewSize = 0;
     LARGE_INTEGER MaximumSize;
 
@@ -264,7 +264,7 @@ KmtInitTestFiles(PHANDLE ReadOnlyFile, PHANDLE WriteOnlyFile, PHANDLE Executable
     ok(*ReadOnlyFile != NULL, "Couldn't acquire READONLY handle\n");
 
     //INIT THE EXECUTABLE FILE
-    Status = ZwCreateFile(ExecutableFile, GENERIC_EXECUTE, &NtdllObject, &IoStatusBlock, NULL, FILE_ATTRIBUTE_NORMAL, FILE_SHARE_READ, FILE_OPEN, FILE_NON_DIRECTORY_FILE, NULL, 0);
+    Status = ZwCreateFile(ExecutableFile, GENERIC_EXECUTE, &NtoskrnlFileObject, &IoStatusBlock, NULL, FILE_ATTRIBUTE_NORMAL, FILE_SHARE_READ, FILE_OPEN, FILE_NON_DIRECTORY_FILE, NULL, 0);
     ok_eq_hex(Status, STATUS_SUCCESS);
     ok(*ExecutableFile != NULL, "Couldn't acquire EXECUTE handle\n");
 
@@ -431,8 +431,6 @@ SimpleErrorChecks(HANDLE FileHandleReadOnly, HANDLE FileHandleWriteOnly, HANDLE 
     CREATE_SECTION(Section, SECTION_ALL_ACCESS, &InvalidObjectAttributes, MaximumSize, PAGE_READONLY, SEC_COMMIT, FileHandleExecuteOnly, STATUS_OBJECT_PATH_SYNTAX_BAD, STATUS_SUCCESS);
 
     //MaximumSize
-
-    
     Status = ZwQueryInformationFile(FileHandleExecuteOnly, &IoStatusBlock, &FileStandardInfo, sizeof(FILE_STANDARD_INFORMATION), FileStandardInformation);
     if(!skip(NT_SUCCESS(Status), "Cannot query file information"))
     {
@@ -520,11 +518,9 @@ START_TEST(ZwCreateSection)
 
     KmtInitTestFiles(&FileHandleReadOnly, &FileHandleWriteOnly, &FileHandleExecuteOnly);
 
-    //if the next 2 functions have their order reversed then the tests in filesectionviewpermissioncheck fail with 
-    // status_mapped_alignment
     FileSectionViewPermissionCheck(FileHandleReadOnly, FileHandleWriteOnly, FileHandleExecuteOnly);
-    //SimpleErrorChecks(FileHandleReadOnly, FileHandleWriteOnly, FileHandleExecuteOnly); 
-    //BasicBehaviorChecks(FileHandleWriteOnly);
+    SimpleErrorChecks(FileHandleReadOnly, FileHandleWriteOnly, FileHandleExecuteOnly); 
+    BasicBehaviorChecks(FileHandleWriteOnly);
 
     if(FileHandleReadOnly)
         ZwClose(FileHandleReadOnly);
