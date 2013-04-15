@@ -19,34 +19,33 @@ static OBJECT_ATTRIBUTES NtdllObject;
 static OBJECT_ATTRIBUTES KmtestFileObject;
 static OBJECT_ATTRIBUTES NtoskrnlFileObject;
 
-#define CREATE_SECTION(Handle, DesiredAccess, Attributes, Size, SectionPageProtection, AllocationAttributes, FileHandle,  RetStatus, CloseRetStatus)  do    \
-    {                                                                                                                                                       \
-        Status = ZwCreateSection(&Handle, DesiredAccess, Attributes, &Size, SectionPageProtection, AllocationAttributes, FileHandle);                       \
-        ok_eq_hex(Status, RetStatus);                                                                                                                       \
-        if (NT_SUCCESS(Status))                                                                                                                             \
-        {                                                                                                                                                   \
-                                                                                                                                                            \
-          if (CloseRetStatus != NO_HANDLE_CLOSE)                                                                                                            \
-            {                                                                                                                                               \
-                Status = ZwClose(Handle);                                                                                                                   \
-                Handle = NULL;                                                                                                                              \
-                if (CloseRetStatus != IGNORE) ok_eq_hex(Status, CloseRetStatus);                                                                            \
-            }                                                                                                                                               \
-        }                                                                                                                                                   \
-    } while (0)                                                                                                                                             \
+#define CREATE_SECTION(Handle, DesiredAccess, Attributes, Size, SectionPageProtection, AllocationAttributes, FileHandle,  RetStatus, CloseRetStatus)  do  \
+{                                                                                                                                                         \
+    Status = ZwCreateSection(&Handle, DesiredAccess, Attributes, &Size, SectionPageProtection, AllocationAttributes, FileHandle);                         \
+    ok_eq_hex(Status, RetStatus);                                                                                                                         \
+    if (NT_SUCCESS(Status))                                                                                                                               \
+    {                                                                                                                                                     \
+        if (CloseRetStatus != NO_HANDLE_CLOSE)                                                                                                            \
+        {                                                                                                                                                 \
+            Status = ZwClose(Handle);                                                                                                                     \
+            Handle = NULL;                                                                                                                                \
+            if (CloseRetStatus != IGNORE) ok_eq_hex(Status, CloseRetStatus);                                                                              \
+        }                                                                                                                                                 \
+    }                                                                                                                                                     \
+} while (0)                                                                                                                                           
 
-#define TestMapView(SectionHandle, ProcessHandle, BaseAddress2, ZeroBits, CommitSize, SectionOffset, ViewSize2, InheritDisposition, AllocationType, Win32Protect, MapStatus, UnmapStatus) do    \
-{                                                                                                                                                                                           \
-    Status = ZwMapViewOfSection(SectionHandle, ProcessHandle, BaseAddress2, ZeroBits, CommitSize, SectionOffset, ViewSize2, InheritDisposition, AllocationType, Win32Protect);              \
-    ok_eq_hex(Status, MapStatus);                                           \
-    if (NT_SUCCESS(Status))                                                 \
-{                                                                           \
-    Status = ZwUnmapViewOfSection(ProcessHandle, BaseAddress);              \
-    if(UnmapStatus != IGNORE) ok_eq_hex(Status, UnmapStatus);               \
-    *BaseAddress2 = NULL;                                                   \
-    *ViewSize2 = 0;                                                         \
-}                                                                           \
-} while (0)                                                                 \
+#define TestMapView(SectionHandle, ProcessHandle, BaseAddress2, ZeroBits, CommitSize, SectionOffset, ViewSize2, InheritDisposition, AllocationType, Win32Protect, MapStatus, UnmapStatus) do   \
+{                                                                                                                                                                                              \
+    Status = ZwMapViewOfSection(SectionHandle, ProcessHandle, BaseAddress2, ZeroBits, CommitSize, SectionOffset, ViewSize2, InheritDisposition, AllocationType, Win32Protect);                 \
+    ok_eq_hex(Status, MapStatus);                                                                                                                                                              \
+    if (NT_SUCCESS(Status))                                                                                                                                                                    \
+    {                                                                                                                                                                                          \
+        Status = ZwUnmapViewOfSection(ProcessHandle, BaseAddress);                                                                                                                             \
+        if(UnmapStatus != IGNORE) ok_eq_hex(Status, UnmapStatus);                                                                                                                              \
+        *BaseAddress2 = NULL;                                                                                                                                                                  \
+        *ViewSize2 = 0;                                                                                                                                                                        \
+    }                                                                                                                                                                                          \
+} while (0)                                                                 
 
 #define CheckObject(Handle, Pointers, Handles) do                   \
 {                                                                   \
@@ -347,20 +346,18 @@ SimpleErrorChecks(HANDLE FileHandleReadOnly, HANDLE FileHandleWriteOnly, HANDLE 
     CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, -1, SEC_COMMIT, NULL, STATUS_INVALID_PAGE_PROTECTION, STATUS_SUCCESS);
 
     //ALLOCATION ATTRIBUTES
-    CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_READWRITE, 0, NULL, STATUS_INVALID_PARAMETER_6, STATUS_SUCCESS);
-    CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_READWRITE, (SEC_COMMIT | SEC_RESERVE), NULL, STATUS_INVALID_PARAMETER_6, STATUS_SUCCESS);
+    CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_READWRITE, 0, NULL, STATUS_INVALID_PARAMETER_6, IGNORE);
+    CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_READWRITE, (SEC_COMMIT | SEC_RESERVE), NULL, STATUS_INVALID_PARAMETER_6, IGNORE);
     CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_READWRITE, SEC_RESERVE, NULL, STATUS_SUCCESS, STATUS_SUCCESS);
-    CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_READWRITE, SEC_IMAGE, NULL, STATUS_INVALID_FILE_FOR_SECTION, STATUS_SUCCESS);
-    CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_READWRITE, (SEC_IMAGE | SEC_COMMIT), NULL, STATUS_INVALID_PARAMETER_6, STATUS_SUCCESS);
-    CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_READWRITE, -1, NULL, STATUS_INVALID_PARAMETER_6, STATUS_SUCCESS);
-    CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_READWRITE, SEC_LARGE_PAGES, NULL, STATUS_INVALID_PARAMETER_6, STATUS_SUCCESS);
-    CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_READWRITE, (SEC_LARGE_PAGES | SEC_COMMIT), NULL, STATUS_INVALID_PARAMETER_4, STATUS_SUCCESS);
-    CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_READWRITE, SEC_NOCACHE, NULL, STATUS_INVALID_PARAMETER_6, STATUS_SUCCESS);
-    CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_READWRITE, (SEC_NOCACHE | SEC_RESERVE | SEC_COMMIT), NULL, STATUS_INVALID_PARAMETER_6, STATUS_SUCCESS);
+    CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_READWRITE, SEC_IMAGE, NULL, STATUS_INVALID_FILE_FOR_SECTION, IGNORE);
+    CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_READWRITE, (SEC_IMAGE | SEC_COMMIT), NULL, STATUS_INVALID_PARAMETER_6, IGNORE);
+    CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_READWRITE, -1, NULL, STATUS_INVALID_PARAMETER_6, IGNORE);
+    CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_READWRITE, SEC_LARGE_PAGES, NULL, STATUS_INVALID_PARAMETER_6, IGNORE);
+    CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_READWRITE, (SEC_LARGE_PAGES | SEC_COMMIT), NULL, STATUS_INVALID_PARAMETER_4, IGNORE);
+    CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_READWRITE, SEC_NOCACHE, NULL, STATUS_INVALID_PARAMETER_6, IGNORE);
+    CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_READWRITE, (SEC_NOCACHE | SEC_RESERVE | SEC_COMMIT), NULL, STATUS_INVALID_PARAMETER_6, IGNORE);
     CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_READWRITE, (SEC_NOCACHE | SEC_COMMIT), NULL, STATUS_SUCCESS, STATUS_SUCCESS);
     CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_READWRITE, (SEC_NOCACHE | SEC_RESERVE), NULL, STATUS_SUCCESS, STATUS_SUCCESS);
-    CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_READWRITE, SEC_IMAGE, NULL, STATUS_INVALID_FILE_FOR_SECTION, STATUS_SUCCESS);
-
 
     /////////////////////////////////////////////////////////////////////////////////////////////
     //NORMAL FILE-BACKED SECTION
@@ -373,17 +370,17 @@ SimpleErrorChecks(HANDLE FileHandleReadOnly, HANDLE FileHandleWriteOnly, HANDLE 
 
     //Object Attributes
     CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_READONLY, SEC_COMMIT, FileHandleReadOnly, STATUS_SUCCESS, STATUS_SUCCESS);
-    CREATE_SECTION(Section, SECTION_ALL_ACCESS, &InvalidObjectAttributes, MaximumSize, PAGE_READONLY, SEC_COMMIT, FileHandleReadOnly, STATUS_OBJECT_PATH_SYNTAX_BAD, STATUS_SUCCESS);
+    CREATE_SECTION(Section, SECTION_ALL_ACCESS, &InvalidObjectAttributes, MaximumSize, PAGE_READONLY, SEC_COMMIT, FileHandleReadOnly, STATUS_OBJECT_PATH_SYNTAX_BAD, IGNORE);
 
     //MAXIMUM SIZE
     MaximumSize.QuadPart = TestStringSize - 100;
     CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_READONLY, SEC_COMMIT, FileHandleWriteOnly, STATUS_SUCCESS, STATUS_SUCCESS);
 
     MaximumSize.QuadPart = -1;
-    CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_READONLY, SEC_COMMIT, FileHandleWriteOnly, STATUS_SECTION_TOO_BIG, STATUS_SUCCESS);
+    CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_READONLY, SEC_COMMIT, FileHandleWriteOnly, STATUS_SECTION_TOO_BIG, IGNORE);
     
     MaximumSize.QuadPart = TestStringSize + 1;
-    CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_READONLY, SEC_COMMIT, FileHandleWriteOnly, STATUS_SECTION_TOO_BIG, STATUS_SUCCESS);
+    CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_READONLY, SEC_COMMIT, FileHandleWriteOnly, STATUS_SECTION_TOO_BIG, IGNORE);
 
     MaximumSize.QuadPart = 0;
     CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_READONLY, SEC_COMMIT, FileHandleWriteOnly, STATUS_SUCCESS, STATUS_SUCCESS);
@@ -400,26 +397,24 @@ SimpleErrorChecks(HANDLE FileHandleReadOnly, HANDLE FileHandleWriteOnly, HANDLE 
     CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, -1, SEC_COMMIT, FileHandleWriteOnly, STATUS_INVALID_PAGE_PROTECTION, STATUS_SUCCESS);
     
     //allocation type
-    CREATE_SECTION(Section, SECTION_MAP_READ, &ObjectAttributesWriteOnly, MaximumSize, PAGE_WRITECOPY, SEC_IMAGE, FileHandleWriteOnly, STATUS_INVALID_IMAGE_NOT_MZ, STATUS_SUCCESS);
-    CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_READWRITE, 0, FileHandleWriteOnly, STATUS_INVALID_PARAMETER_6, STATUS_SUCCESS);
-    CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_READWRITE, (SEC_COMMIT | SEC_RESERVE), FileHandleWriteOnly, STATUS_INVALID_PARAMETER_6, STATUS_SUCCESS);
+    CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_READWRITE, 0, FileHandleWriteOnly, STATUS_INVALID_PARAMETER_6, IGNORE);
+    CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_READWRITE, (SEC_COMMIT | SEC_RESERVE), FileHandleWriteOnly, STATUS_INVALID_PARAMETER_6, IGNORE);
     CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_READWRITE, SEC_RESERVE, FileHandleWriteOnly, STATUS_SUCCESS, STATUS_SUCCESS);
-    CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_READWRITE, (SEC_IMAGE | SEC_COMMIT), FileHandleWriteOnly, STATUS_INVALID_PARAMETER_6, STATUS_SUCCESS);
-    CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_READWRITE, -1, FileHandleWriteOnly, STATUS_INVALID_PARAMETER_6, STATUS_SUCCESS);
-    CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_READWRITE, SEC_LARGE_PAGES, FileHandleWriteOnly, STATUS_INVALID_PARAMETER_6, STATUS_SUCCESS);
-    CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_READWRITE, (SEC_LARGE_PAGES | SEC_COMMIT), FileHandleWriteOnly, STATUS_INVALID_PARAMETER_6, STATUS_SUCCESS);
-    CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_READWRITE, SEC_NOCACHE, FileHandleWriteOnly, STATUS_INVALID_PARAMETER_6, STATUS_SUCCESS);
-    CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_READWRITE, (SEC_NOCACHE | SEC_RESERVE | SEC_COMMIT), FileHandleWriteOnly, STATUS_INVALID_PARAMETER_6, STATUS_SUCCESS);
+    CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_READWRITE, (SEC_IMAGE | SEC_COMMIT), FileHandleWriteOnly, STATUS_INVALID_PARAMETER_6, IGNORE);
+    CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_READWRITE, -1, FileHandleWriteOnly, STATUS_INVALID_PARAMETER_6, IGNORE);
+    CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_READWRITE, SEC_LARGE_PAGES, FileHandleWriteOnly, STATUS_INVALID_PARAMETER_6, IGNORE);
+    CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_READWRITE, (SEC_LARGE_PAGES | SEC_COMMIT), FileHandleWriteOnly, STATUS_INVALID_PARAMETER_6, IGNORE);
+    CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_READWRITE, SEC_NOCACHE, FileHandleWriteOnly, STATUS_INVALID_PARAMETER_6, IGNORE);
+    CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_READWRITE, (SEC_NOCACHE | SEC_RESERVE | SEC_COMMIT), FileHandleWriteOnly, STATUS_INVALID_PARAMETER_6, IGNORE);
     CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_READWRITE, (SEC_NOCACHE | SEC_COMMIT), FileHandleWriteOnly, STATUS_SUCCESS, STATUS_SUCCESS);
     CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_READWRITE, (SEC_NOCACHE | SEC_RESERVE), FileHandleWriteOnly, STATUS_SUCCESS, STATUS_SUCCESS);
-    CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_READWRITE, SEC_IMAGE, FileHandleWriteOnly, STATUS_INVALID_IMAGE_NOT_MZ, STATUS_SUCCESS);
+    CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_READWRITE, SEC_IMAGE, FileHandleWriteOnly, STATUS_INVALID_IMAGE_NOT_MZ, IGNORE);
 
     //////////////////////////////////////////////////
     //EXECUTABLE IMAGE 
     CREATE_SECTION(Section, SECTION_MAP_READ, &ObjectAttributesWriteOnly, MaximumSize, PAGE_WRITECOPY, SEC_IMAGE, FileHandleExecuteOnly, STATUS_SUCCESS, STATUS_SUCCESS);
     CREATE_SECTION(Section, SECTION_MAP_EXECUTE, &ObjectAttributesWriteOnly, MaximumSize, PAGE_WRITECOPY, SEC_IMAGE, FileHandleExecuteOnly, STATUS_SUCCESS, STATUS_SUCCESS);
     
-    //object attributes 
     //DESIRED ACCESS TESTS 
     CREATE_SECTION(Section, SECTION_ALL_ACCESS, &ObjectAttributesReadOnly, MaximumSize, PAGE_READONLY, SEC_COMMIT, FileHandleExecuteOnly, STATUS_SUCCESS, STATUS_SUCCESS);
     CREATE_SECTION(Section, SECTION_ALL_ACCESS, &ObjectAttributesWriteOnly, MaximumSize, PAGE_WRITECOPY, SEC_COMMIT, FileHandleExecuteOnly, STATUS_SUCCESS, STATUS_SUCCESS);
@@ -428,7 +423,7 @@ SimpleErrorChecks(HANDLE FileHandleReadOnly, HANDLE FileHandleWriteOnly, HANDLE 
 
     //Object Attributes
     CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_READONLY, SEC_COMMIT, FileHandleExecuteOnly, STATUS_SUCCESS, STATUS_SUCCESS);
-    CREATE_SECTION(Section, SECTION_ALL_ACCESS, &InvalidObjectAttributes, MaximumSize, PAGE_READONLY, SEC_COMMIT, FileHandleExecuteOnly, STATUS_OBJECT_PATH_SYNTAX_BAD, STATUS_SUCCESS);
+    CREATE_SECTION(Section, SECTION_ALL_ACCESS, &InvalidObjectAttributes, MaximumSize, PAGE_READONLY, SEC_COMMIT, FileHandleExecuteOnly, STATUS_OBJECT_PATH_SYNTAX_BAD, IGNORE);
 
     //MaximumSize
     Status = ZwQueryInformationFile(FileHandleExecuteOnly, &IoStatusBlock, &FileStandardInfo, sizeof(FILE_STANDARD_INFORMATION), FileStandardInformation);
@@ -452,9 +447,8 @@ SimpleErrorChecks(HANDLE FileHandleReadOnly, HANDLE FileHandleWriteOnly, HANDLE 
 
         //-1 (very big number)
         MaximumSize.QuadPart = -1;
-        CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_EXECUTE_READ, SEC_IMAGE, FileHandleExecuteOnly, STATUS_SECTION_TOO_BIG, STATUS_SUCCESS);
+        CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_EXECUTE_READ, SEC_IMAGE, FileHandleExecuteOnly, STATUS_SECTION_TOO_BIG, IGNORE);
     }
-
 }
 
 static
@@ -501,7 +495,7 @@ BasicBehaviorChecks(HANDLE FileHandle)
 
     //check zero-based section
     Length.QuadPart = 0;
-    CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, Length, PAGE_READONLY, SEC_COMMIT, FileHandle, STATUS_MAPPED_FILE_SIZE_ZERO, IGNORE);
+    CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, Length, PAGE_READONLY, SEC_COMMIT, FileHandle, STATUS_SUCCESS, IGNORE);
 
 }
 
@@ -525,8 +519,12 @@ START_TEST(ZwCreateSection)
     if(FileHandleReadOnly)
         ZwClose(FileHandleReadOnly);
 
-    if(FileHandleWriteOnly)
+    if(FileHandleWriteOnly) 
+    {
         ZwClose(FileHandleWriteOnly);
+        ZwDeleteFile(&KmtestFileObject);
+    }
+        
 
     if(FileHandleExecuteOnly)
         ZwClose(FileHandleExecuteOnly);
