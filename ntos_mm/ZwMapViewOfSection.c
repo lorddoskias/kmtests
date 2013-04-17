@@ -35,8 +35,8 @@ static OBJECT_ATTRIBUTES NtoskrnlFileObject;
     } while (0)                                                                     \
 
 #define MmTestMapView(Object, ProcessHandle, BaseAddress2, ZeroBits, CommitSize, SectionOffset, ViewSize2, InheritDisposition, AllocationType, Win32Protect, MapStatus, UnmapStatus) do    \
-    {                                                                                                                                                                                           \
-        Status = MmMapViewOfSection(Object, ProcessHandle, BaseAddress2, ZeroBits, CommitSize, SectionOffset, ViewSize2, InheritDisposition, AllocationType, Win32Protect);              \
+    {                                                                                                                                                                                      \
+        Status = MmMapViewOfSection(Object, ProcessHandle, BaseAddress2, ZeroBits, CommitSize, SectionOffset, ViewSize2, InheritDisposition, AllocationType, Win32Protect);                \
         ok_eq_hex(Status, MapStatus);                                               \
         if (NT_SUCCESS(Status))                                                     \
         {                                                                           \
@@ -102,14 +102,12 @@ SimpleErrorChecks(HANDLE FileHandleReadOnly, HANDLE FileHandleWriteOnly, HANDLE 
     HANDLE WriteSectionHandle;
     HANDLE ReadOnlySection;
     HANDLE PageFileSectionHandle;
-    HANDLE ExecutableSectionHandle;
     LARGE_INTEGER MaximumSize;
     LARGE_INTEGER SectionOffset;
     SIZE_T AllocSize = TestStringSize;
     SIZE_T ViewSize = 0;
     PVOID BaseAddress = NULL;
     PVOID AllocBase = NULL;
-    //UNICODE_STRING SectionName = RTL_CONSTANT_STRING(L"\\BaseNamedObjects\\KmtTestReadSect");
     MaximumSize.QuadPart = TestStringSize;
 
     //Used for parameters working on file-based section
@@ -147,6 +145,7 @@ SimpleErrorChecks(HANDLE FileHandleReadOnly, HANDLE FileHandleWriteOnly, HANDLE 
     BaseAddress = (PVOID)((char *)MmSystemRangeStart + 200);
     TestMapView(WriteSectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READWRITE, STATUS_INVALID_PARAMETER_3, IGNORE);
 
+    //try mapping section to an already mapped address
     Status = ZwAllocateVirtualMemory(ZwCurrentProcess(), &AllocBase, 0, &AllocSize, MEM_COMMIT, PAGE_READWRITE);
     if (!skip(NT_SUCCESS(Status), "Cannot allocate memory\n"))
     {
@@ -156,10 +155,6 @@ SimpleErrorChecks(HANDLE FileHandleReadOnly, HANDLE FileHandleWriteOnly, HANDLE 
         ok_eq_hex(Status, STATUS_SUCCESS);
         
     }
-
-    /*KmtStartSeh()
-    Status = ZwMapViewOfSection(Handle, ZwCurrentProcess(), NULL, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READWRITE);
-    KmtEndSeh(STATUS_ACCESS_VIOLATION);*/
 
     //zero bits
     TestMapView(WriteSectionHandle, ZwCurrentProcess(), &BaseAddress, 1, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READWRITE, STATUS_SUCCESS, STATUS_SUCCESS);
@@ -225,22 +220,9 @@ SimpleErrorChecks(HANDLE FileHandleReadOnly, HANDLE FileHandleWriteOnly, HANDLE 
     TestMapView(ReadOnlySection, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, (PAGE_READWRITE | PAGE_READONLY), STATUS_INVALID_PAGE_PROTECTION, IGNORE);
     TestMapView(ReadOnlySection, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, MEM_RESERVE, PAGE_READONLY, STATUS_SECTION_PROTECTION, IGNORE);
 
-    
-    //TODO: 
-    /* Write tests based on the DesiredAccess of the ZwCreateSection */
-
-    /* Incompatible AllocationType tests when working with Image section*/ 
-  /*  Status = ZwCreateSection(&ExecutableSectionHandle, SECTION_ALL_ACCESS, NULL, &MaximumSize, PAGE_READWRITE, SEC_IMAGE, ExecutableImg); 
-    ok(NT_SUCCESS(Status), "Error creating section with SEC_IMAGE. Error = %p\n", Status);
-    TestMapView(WriteSectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READWRITE, STATUS_IMAGE_NOT_AT_BASE, IGNORE);
-    TestMapView(WriteSectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READONLY, STATUS_IMAGE_NOT_AT_BASE, IGNORE);
-    ZwClose(ExecutableSectionHandle);
-    */
-
     ZwClose(WriteSectionHandle); 
     ZwClose(PageFileSectionHandle);
-    ZwClose(ReadOnlySection);
-    
+    ZwClose(ReadOnlySection);    
 }
 
 
@@ -271,7 +253,7 @@ AdvancedErrorChecks(HANDLE FileHandleReadOnly, HANDLE FileHandleWriteOnly)
 
     ok_eq_hex(Status, STATUS_SUCCESS);
 
-    //Bypassing Nt/Zw function calls mean I bypass the alignment checks which are not crucial for the branches being tested here
+    //Bypassing Zw function calls mean bypassing the alignment checks which are not crucial for the branches being tested here
 
     //test first conditional branch 
     ViewSize = -1;
@@ -281,8 +263,6 @@ AdvancedErrorChecks(HANDLE FileHandleReadOnly, HANDLE FileHandleWriteOnly)
     ViewSize = 1;
     SectionOffset.QuadPart = TestStringSize;
     MmTestMapView(SectionObject, PsGetCurrentProcess(), &BaseAddress, 0, TestStringSize, &SectionOffset, &ViewSize, ViewUnmap, 0, PAGE_READWRITE, STATUS_INVALID_VIEW_SIZE, IGNORE);
-    /* On W2k3 this WAS working but suddenly started to give BSODs*/ 
-    //MmTestMapView(SectionObject, PsGetCurrentProcess(), &BaseAddress, 0, TestStringSize, &SectionOffset, &ViewSize, ViewUnmap, MEM_RESERVE, PAGE_READWRITE, STATUS_SUCCESS, STATUS_SUCCESS);
 
     ObDereferenceObject(SectionObject);
     ZwClose(FileSectionHandle);
@@ -340,22 +320,23 @@ SystemProcessWorker(PVOID StartContext)
 
     InitializeObjectAttributes(&ObjectAttributes, &SharedSectionName, (OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE), NULL, NULL);
     Status = ZwOpenSection(&SectionHandle, SECTION_ALL_ACCESS, &ObjectAttributes);
-    CheckObject(SectionHandle, 4, 2);
-    ok_eq_hex(Status, STATUS_SUCCESS);
-
-    if (NT_SUCCESS(Status))
+    if (!skip(NT_SUCCESS(Status), "Error acquiring handle to section. Error = %p\n", Status))
     {
-        Status = ZwMapViewOfSection(SectionHandle, ZwCurrentProcess(), &BaseAddress, 0, TestStringSize, &SectionOffset, &ViewSize, ViewUnmap, 0, PAGE_READWRITE);
         CheckObject(SectionHandle, 4, 2);
-        ok(NT_SUCCESS(Status), "Error mapping page file view in system process. Error = %p\n", Status);
+        Status = ZwMapViewOfSection(SectionHandle, ZwCurrentProcess(), &BaseAddress, 0, TestStringSize, &SectionOffset, &ViewSize, ViewUnmap, 0, PAGE_READWRITE);
 
-        if (NT_SUCCESS(Status))
+        //make sure ZwMapViewofSection doesn't touch the section ref counts.
+        CheckObject(SectionHandle, 4, 2);
+
+        if (!skip(NT_SUCCESS(Status), "Error mapping page file view in system process. Error = %p\n", Status))
         {
             Match = RtlCompareMemory(BaseAddress, TestString, TestStringSize);
             ok_eq_size(Match, TestStringSize);
 
             RtlCopyMemory(BaseAddress, NEW_CONTENT, NEW_CONTENT_LEN);
             ZwUnmapViewOfSection(ZwCurrentProcess(), BaseAddress);
+
+            //make sure ZwMapViewofSection doesn't touch the section ref counts.
             CheckObject(SectionHandle, 4, 2);
         }
 
@@ -373,7 +354,6 @@ BehaviorChecks(HANDLE FileHandleReadOnly, HANDLE FileHandleWriteOnly)
     NTSTATUS Status;
     PVOID BaseAddress = NULL;
     PVOID ThreadObject;
-    HANDLE ReadOnlySectionHandle;
     HANDLE WriteSectionHandle;
     HANDLE SysThreadHandle;
     OBJECT_ATTRIBUTES ObjectAttributes;
@@ -393,8 +373,7 @@ BehaviorChecks(HANDLE FileHandleReadOnly, HANDLE FileHandleWriteOnly)
     //check for section reading/writing by comparing section content to a well-known value.
     Status = ZwMapViewOfSection(WriteSectionHandle, ZwCurrentProcess() ,&BaseAddress, 0, 0, &SectionOffset, &ViewSize, ViewUnmap, 0, PAGE_READWRITE);
     CheckObject(WriteSectionHandle, 3, 1);
-    ok(NT_SUCCESS(Status), "Error mapping view with READ/WRITE priv. Error = %p\n", Status);
-    if (NT_SUCCESS(Status))
+    if (!skip(NT_SUCCESS(Status), "Error mapping view with READ/WRITE priv. Error = %p\n", Status))
     {
         Match = RtlCompareMemory(BaseAddress, TestString, TestStringSize);
         ok_eq_size(Match, TestStringSize);
@@ -415,11 +394,10 @@ BehaviorChecks(HANDLE FileHandleReadOnly, HANDLE FileHandleWriteOnly)
         //Initiate an external thread to modify the file
         InitializeObjectAttributes(&ObjectAttributes, NULL, OBJ_KERNEL_HANDLE, NULL, NULL);
         Status = PsCreateSystemThread(&SysThreadHandle, STANDARD_RIGHTS_ALL, &ObjectAttributes, NULL, NULL, SystemProcessWorker, NULL);
-        if (NT_SUCCESS(Status)) 
+        if (!skip(NT_SUCCESS(Status), "Error creating System thread. Error = %p\n", Status)) 
         {
             Status = ObReferenceObjectByHandle(SysThreadHandle, THREAD_ALL_ACCESS, PsThreadType, KernelMode, &ThreadObject, NULL);
-            ok(NT_SUCCESS(Status), "Error getting reference to System thread when testing file-backed section\n");
-            if (NT_SUCCESS(Status))
+            if (!skip(NT_SUCCESS(Status), "Error getting reference to System thread when testing file-backed section\n"))
             {
                 //wait until the system thread actually terminates 
                 KeWaitForSingleObject(ThreadObject, Executive, KernelMode, FALSE, NULL);
@@ -445,8 +423,7 @@ BehaviorChecks(HANDLE FileHandleReadOnly, HANDLE FileHandleWriteOnly)
     ViewSize = 0;
     SectionOffset.QuadPart = 0;
     Status = ZwMapViewOfSection(WriteSectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 0, &SectionOffset, &ViewSize, ViewUnmap, 0, PAGE_READONLY);
-    ok(NT_SUCCESS(Status), "Error mapping view with READ priv. Error = %p\n", Status);
-    if (NT_SUCCESS(Status))
+    if (!skip(NT_SUCCESS(Status), "Error mapping view with READ priv. Error = %p\n", Status))
     {
        NTSTATUS ExceptionStatus;
 
@@ -465,8 +442,7 @@ BehaviorChecks(HANDLE FileHandleReadOnly, HANDLE FileHandleWriteOnly)
     ViewSize = 0;
     SectionOffset.QuadPart = 0;
     Status = ZwMapViewOfSection(WriteSectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 0, &SectionOffset, &ViewSize, ViewUnmap, 0, PAGE_NOACCESS);
-    ok(NT_SUCCESS(Status), "Error mapping view with READ priv. Error = %p\n", Status);
-    if (NT_SUCCESS(Status))
+    if (!skip(NT_SUCCESS(Status), "Error mapping view with PAGE_NOACCESS priv. Error = %p\n", Status))
     {
         NTSTATUS ExceptionStatus;
 
@@ -478,6 +454,29 @@ BehaviorChecks(HANDLE FileHandleReadOnly, HANDLE FileHandleWriteOnly)
     }
  
     ZwClose(WriteSectionHandle);
+
+    //section created with sec_reserve should not be commited.
+    BaseAddress = NULL;
+    ViewSize = 0;
+    SectionOffset.QuadPart = 0;
+    Status = ZwCreateSection(&WriteSectionHandle, SECTION_ALL_ACCESS, &ObjectAttributes, &MaximumSize, PAGE_READWRITE, SEC_RESERVE, FileHandleWriteOnly);
+    if (!skip(NT_SUCCESS(Status), "Error creating page file section. Error = %p\n", Status))
+    {
+        Status = ZwMapViewOfSection(WriteSectionHandle, ZwCurrentProcess(), &BaseAddress, 0, TestStringSize, &SectionOffset, &ViewSize, ViewUnmap, 0, PAGE_READWRITE);
+        if (!skip(NT_SUCCESS(Status), "Error mapping page file view. Error = %p\n", Status)) 
+        {
+            //check also the SEC_COMMIT flag 
+            /* This test proves that MSDN is once again wrong
+            *  msdn.microsoft.com/en-us/library/windows/hardware/aa366537.aspx states that SEC_RESERVE
+            *  should cause the allocated memory for the view to be reserved but in fact it is always committed.
+            *  It fails also on windows.
+            */
+            Test_NtQueryVirtualMemory(BaseAddress, PAGE_SIZE, MEM_RESERVE, PAGE_READWRITE);
+            ZwUnmapViewOfSection(ZwCurrentProcess(), BaseAddress);
+        }
+
+        ZwClose(WriteSectionHandle);
+    }
 }
 
 
@@ -507,32 +506,28 @@ PageFileBehaviorChecks()
 
     //test memory sharing between 2 different processes
     Status = ZwCreateSection(&PageFileSectionHandle, SECTION_ALL_ACCESS, &ObjectAttributes, &MaxSectionSize, PAGE_READWRITE, SEC_COMMIT, NULL);
-    CheckObject(PageFileSectionHandle, 3, 1);
-    ok(NT_SUCCESS(Status), "Error creating page file section. Error = %p\n", Status);
-
-    if (NT_SUCCESS(Status))
+    if (!skip(NT_SUCCESS(Status), "Error creating page file section. Error = %p\n", Status))
     {
-        Status = ZwMapViewOfSection(PageFileSectionHandle, ZwCurrentProcess(), &BaseAddress, 0, TestStringSize, &SectionOffset, &ViewSize, ViewUnmap, 0, PAGE_READWRITE);
         CheckObject(PageFileSectionHandle, 3, 1);
-        ok(NT_SUCCESS(Status), "Error mapping page file view. Error = %p\n", Status);
-
-        //check also the SEC_COMMIT flag 
-        Test_NtQueryVirtualMemory(BaseAddress, PAGE_SIZE, MEM_COMMIT, PAGE_READWRITE);
-
-        if (NT_SUCCESS(Status))
+        Status = ZwMapViewOfSection(PageFileSectionHandle, ZwCurrentProcess(), &BaseAddress, 0, TestStringSize, &SectionOffset, &ViewSize, ViewUnmap, 0, PAGE_READWRITE);
+        if (!skip(NT_SUCCESS(Status), "Error mapping page file view. Error = %p\n", Status))
         {
             HANDLE SysThreadHandle;
+
+            CheckObject(PageFileSectionHandle, 3, 1);
+
+            //check also the SEC_COMMIT flag 
+            Test_NtQueryVirtualMemory(BaseAddress, PAGE_SIZE, MEM_COMMIT, PAGE_READWRITE);
 
             RtlCopyMemory(BaseAddress, TestString, TestStringSize);
 
             InitializeObjectAttributes(&ObjectAttributes, NULL, OBJ_KERNEL_HANDLE, NULL, NULL);
             Status = PsCreateSystemThread(&SysThreadHandle, STANDARD_RIGHTS_ALL, &ObjectAttributes, NULL, NULL, SystemProcessWorker, NULL);
             
-            if (NT_SUCCESS(Status)) 
+            if (!skip(NT_SUCCESS(Status), "Error creating System thread. Error = %p\n", Status)) 
             {
                  Status = ObReferenceObjectByHandle(SysThreadHandle, THREAD_ALL_ACCESS, PsThreadType, KernelMode, &ThreadObject, NULL);
-                 ok(NT_SUCCESS(Status), "Error getting reference to System thread when testing pagefile-backed section\n");
-                 if (NT_SUCCESS(Status))
+                 if (!skip(NT_SUCCESS(Status), "Error getting reference to System thread when testing pagefile-backed section\n"))
                  {
                      //wait until the system thread actually terminates 
                      KeWaitForSingleObject(ThreadObject, Executive, KernelMode, FALSE, NULL);
@@ -547,26 +542,6 @@ PageFileBehaviorChecks()
             }
             ZwUnmapViewOfSection(ZwCurrentProcess(), BaseAddress);
         }
-        ZwClose(PageFileSectionHandle);
-    }
-
-
-    //section created with sec_reserve should not be commited.
-    Status = ZwCreateSection(&PageFileSectionHandle, SECTION_ALL_ACCESS, &ObjectAttributes, &MaxSectionSize, PAGE_READWRITE, SEC_RESERVE, NULL);
-    ok(NT_SUCCESS(Status), "Error creating page file section. Error = %p\n", Status);
-
-    if (NT_SUCCESS(Status))
-    {
-        Status = ZwMapViewOfSection(PageFileSectionHandle, ZwCurrentProcess(), &BaseAddress, 0, TestStringSize, &SectionOffset, &ViewSize, ViewUnmap, 0, PAGE_READWRITE);
-        ok(NT_SUCCESS(Status), "Error mapping page file view. Error = %p\n", Status);
-
-        //check also the SEC_COMMIT flag 
-        /* This test proves that MSDN is once again wrong
-        *  msdn.microsoft.com/en-us/library/windows/hardware/aa366537.aspx states that SEC_RESERVE
-        * should cause the allocated memory for the view to be reserved but in fact it is always committed.
-        */
-        Test_NtQueryVirtualMemory(BaseAddress, PAGE_SIZE, MEM_RESERVE, PAGE_READWRITE);
-        ZwUnmapViewOfSection(ZwCurrentProcess(), BaseAddress);
         ZwClose(PageFileSectionHandle);
     }
 }

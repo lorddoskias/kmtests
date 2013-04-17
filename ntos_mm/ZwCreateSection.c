@@ -492,11 +492,6 @@ BasicBehaviorChecks(HANDLE FileHandle)
     CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, Length, PAGE_READONLY, SEC_COMMIT, FileHandle, STATUS_SUCCESS, NO_HANDLE_CLOSE);
     CheckSection(Section, SEC_FILE, TestStringSize - 100, STATUS_SUCCESS);
     ZwClose(Section);
-
-    //check zero-based section
-    Length.QuadPart = 0;
-    CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, Length, PAGE_READONLY, SEC_COMMIT, FileHandle, STATUS_SUCCESS, IGNORE);
-
 }
 
 
