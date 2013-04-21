@@ -64,7 +64,6 @@ KmtInitTestFiles(PHANDLE ReadOnlyFile, PHANDLE WriteOnlyFile, PHANDLE Executable
     NTSTATUS Status;
     LARGE_INTEGER FileOffset;
     IO_STATUS_BLOCK IoStatusBlock;
-    UCHAR FileData = 0;
 
     //INIT THE READ-ONLY FILE
     Status = ZwCreateFile(ReadOnlyFile, GENERIC_READ, &NtdllObject, &IoStatusBlock, NULL, FILE_ATTRIBUTE_NORMAL, FILE_SHARE_READ, FILE_OPEN, FILE_NON_DIRECTORY_FILE, NULL, 0);
@@ -126,99 +125,98 @@ SimpleErrorChecks(HANDLE FileHandleReadOnly, HANDLE FileHandleWriteOnly, HANDLE 
     MaximumSize.QuadPart = TestStringSize;
 
     //section handle
-    TestMapView(WriteSectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READWRITE, STATUS_SUCCESS, STATUS_SUCCESS);
-    TestMapView(0xDEADBEEF, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READWRITE, STATUS_INVALID_HANDLE, IGNORE);
-    TestMapView(INVALID_HANDLE_VALUE, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READWRITE, STATUS_OBJECT_TYPE_MISMATCH, IGNORE);
-    TestMapView(NULL, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READWRITE, STATUS_INVALID_HANDLE, IGNORE);
+    TestMapView(WriteSectionHandle, NtCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READWRITE, STATUS_SUCCESS, STATUS_SUCCESS);
+    TestMapView((HANDLE)0xDEADBEEF, NtCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READWRITE, STATUS_INVALID_HANDLE, IGNORE);
+    TestMapView(INVALID_HANDLE_VALUE, NtCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READWRITE, STATUS_OBJECT_TYPE_MISMATCH, IGNORE);
+    TestMapView(NULL, NtCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READWRITE, STATUS_INVALID_HANDLE, IGNORE);
 
     //process handle
-    TestMapView(WriteSectionHandle, 0xDEADBEEF, &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READWRITE, STATUS_INVALID_HANDLE, IGNORE);
-    TestMapView(WriteSectionHandle, NULL, &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READWRITE, STATUS_INVALID_HANDLE, IGNORE);
+    TestMapView(WriteSectionHandle, (HANDLE)0xDEADBEEF, &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READWRITE, STATUS_INVALID_HANDLE, IGNORE);
+    TestMapView(WriteSectionHandle, (HANDLE)NULL, &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READWRITE, STATUS_INVALID_HANDLE, IGNORE);
     
     //base address
     BaseAddress = (PVOID)0x00567A20;
-    TestMapView(WriteSectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READWRITE, STATUS_MAPPED_ALIGNMENT, IGNORE);
+    TestMapView(WriteSectionHandle, NtCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READWRITE, STATUS_MAPPED_ALIGNMENT, IGNORE);
 
     BaseAddress = (PVOID) 0x60000000; 
-    TestMapView(WriteSectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READWRITE, STATUS_SUCCESS, STATUS_SUCCESS);
+    TestMapView(WriteSectionHandle, NtCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READWRITE, STATUS_SUCCESS, STATUS_SUCCESS);
 
     BaseAddress = (PVOID)((char *)MmSystemRangeStart + 200);
-    TestMapView(WriteSectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READWRITE, STATUS_INVALID_PARAMETER_3, IGNORE);
+    TestMapView(WriteSectionHandle, NtCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READWRITE, STATUS_INVALID_PARAMETER_3, IGNORE);
 
     //try mapping section to an already mapped address
-    Status = ZwAllocateVirtualMemory(ZwCurrentProcess(), &AllocBase, 0, &AllocSize, MEM_COMMIT, PAGE_READWRITE);
+    Status = ZwAllocateVirtualMemory(NtCurrentProcess(), &AllocBase, 0, &AllocSize, MEM_COMMIT, PAGE_READWRITE);
     if (!skip(NT_SUCCESS(Status), "Cannot allocate memory\n"))
     {
         BaseAddress = AllocBase;
-        TestMapView(WriteSectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READWRITE, STATUS_CONFLICTING_ADDRESSES, IGNORE);
-        Status = ZwFreeVirtualMemory(ZwCurrentProcess(), &AllocBase, &AllocSize, MEM_RELEASE);
+        TestMapView(WriteSectionHandle, NtCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READWRITE, STATUS_CONFLICTING_ADDRESSES, IGNORE);
+        Status = ZwFreeVirtualMemory(NtCurrentProcess(), &AllocBase, &AllocSize, MEM_RELEASE);
         ok_eq_hex(Status, STATUS_SUCCESS);
         
     }
 
     //zero bits
-    TestMapView(WriteSectionHandle, ZwCurrentProcess(), &BaseAddress, 1, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READWRITE, STATUS_SUCCESS, STATUS_SUCCESS);
-    TestMapView(WriteSectionHandle, ZwCurrentProcess(), &BaseAddress, 5, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READWRITE, STATUS_SUCCESS, STATUS_SUCCESS);
-    TestMapView(WriteSectionHandle, ZwCurrentProcess(), &BaseAddress, -1, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READWRITE, STATUS_INVALID_PARAMETER_4, IGNORE);
-    TestMapView(WriteSectionHandle, ZwCurrentProcess(), &BaseAddress, 20, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READWRITE, STATUS_NO_MEMORY, IGNORE);
-    TestMapView(WriteSectionHandle, ZwCurrentProcess(), &BaseAddress, 21, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READWRITE, STATUS_NO_MEMORY, IGNORE);
-    TestMapView(WriteSectionHandle, ZwCurrentProcess(), &BaseAddress, 22, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READWRITE, STATUS_INVALID_PARAMETER_4, IGNORE);
+    TestMapView(WriteSectionHandle, NtCurrentProcess(), &BaseAddress, 1, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READWRITE, STATUS_SUCCESS, STATUS_SUCCESS);
+    TestMapView(WriteSectionHandle, NtCurrentProcess(), &BaseAddress, 5, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READWRITE, STATUS_SUCCESS, STATUS_SUCCESS);
+    TestMapView(WriteSectionHandle, NtCurrentProcess(), &BaseAddress, -1, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READWRITE, STATUS_INVALID_PARAMETER_4, IGNORE);
+    TestMapView(WriteSectionHandle, NtCurrentProcess(), &BaseAddress, 20, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READWRITE, STATUS_NO_MEMORY, IGNORE);
+    TestMapView(WriteSectionHandle, NtCurrentProcess(), &BaseAddress, 21, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READWRITE, STATUS_NO_MEMORY, IGNORE);
+    TestMapView(WriteSectionHandle, NtCurrentProcess(), &BaseAddress, 22, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READWRITE, STATUS_INVALID_PARAMETER_4, IGNORE);
 
     //commit size
-    TestMapView(PageFileSectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 500, NULL, &ViewSize, ViewUnmap, 0, PAGE_READWRITE, STATUS_SUCCESS, STATUS_SUCCESS);
-    TestMapView(PageFileSectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READWRITE, STATUS_SUCCESS, STATUS_SUCCESS);
-    TestMapView(PageFileSectionHandle, ZwCurrentProcess(), &BaseAddress, 0, -1, NULL, &ViewSize, ViewUnmap, 0, PAGE_READWRITE, STATUS_INVALID_PARAMETER_5, IGNORE);
-    TestMapView(PageFileSectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 0x10000000, NULL, &ViewSize, ViewUnmap, 0, PAGE_READWRITE, STATUS_INVALID_PARAMETER_5, IGNORE);
-    TestMapView(PageFileSectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 0x01000000, NULL, &ViewSize, ViewUnmap, 0, PAGE_READWRITE, STATUS_INVALID_PARAMETER_5, IGNORE);
-    TestMapView(WriteSectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 500, NULL, &ViewSize, ViewUnmap, 0, PAGE_READWRITE, STATUS_INVALID_PARAMETER_5, IGNORE);
-    TestMapView(WriteSectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 500, NULL, &ViewSize, ViewUnmap, MEM_RESERVE, PAGE_READWRITE, STATUS_SUCCESS, STATUS_SUCCESS);    
+    TestMapView(PageFileSectionHandle, NtCurrentProcess(), &BaseAddress, 0, 500, NULL, &ViewSize, ViewUnmap, 0, PAGE_READWRITE, STATUS_SUCCESS, STATUS_SUCCESS);
+    TestMapView(PageFileSectionHandle, NtCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READWRITE, STATUS_SUCCESS, STATUS_SUCCESS);
+    TestMapView(PageFileSectionHandle, NtCurrentProcess(), &BaseAddress, 0, -1, NULL, &ViewSize, ViewUnmap, 0, PAGE_READWRITE, STATUS_INVALID_PARAMETER_5, IGNORE);
+    TestMapView(PageFileSectionHandle, NtCurrentProcess(), &BaseAddress, 0, 0x10000000, NULL, &ViewSize, ViewUnmap, 0, PAGE_READWRITE, STATUS_INVALID_PARAMETER_5, IGNORE);
+    TestMapView(WriteSectionHandle, NtCurrentProcess(), &BaseAddress, 0, 500, NULL, &ViewSize, ViewUnmap, 0, PAGE_READWRITE, STATUS_INVALID_PARAMETER_5, IGNORE);
+    TestMapView(WriteSectionHandle, NtCurrentProcess(), &BaseAddress, 0, 500, NULL, &ViewSize, ViewUnmap, MEM_RESERVE, PAGE_READWRITE, STATUS_SUCCESS, STATUS_SUCCESS);    
     
     //section offset
     SectionOffset.QuadPart = 0;
-    TestMapView(WriteSectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 0, &SectionOffset, &ViewSize, ViewUnmap, 0, PAGE_READWRITE, STATUS_SUCCESS, STATUS_SUCCESS);
+    TestMapView(WriteSectionHandle, NtCurrentProcess(), &BaseAddress, 0, 0, &SectionOffset, &ViewSize, ViewUnmap, 0, PAGE_READWRITE, STATUS_SUCCESS, STATUS_SUCCESS);
     ok_eq_ulonglong(SectionOffset.QuadPart, 0);
 
     SectionOffset.QuadPart = 0x00040211; //MSDN is wrong, in w2k3 the ZwMapViewOfSection doesn't align offsets automatically 
-    TestMapView(PageFileSectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 500, &SectionOffset, &ViewSize, ViewUnmap, 0, PAGE_READWRITE, STATUS_MAPPED_ALIGNMENT, IGNORE);
+    TestMapView(PageFileSectionHandle, NtCurrentProcess(), &BaseAddress, 0, 500, &SectionOffset, &ViewSize, ViewUnmap, 0, PAGE_READWRITE, STATUS_MAPPED_ALIGNMENT, IGNORE);
 
     SectionOffset.QuadPart = -1;
-    TestMapView(WriteSectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 0, &SectionOffset, &ViewSize, ViewUnmap, 0, PAGE_READWRITE, STATUS_MAPPED_ALIGNMENT, IGNORE);
+    TestMapView(WriteSectionHandle, NtCurrentProcess(), &BaseAddress, 0, 0, &SectionOffset, &ViewSize, ViewUnmap, 0, PAGE_READWRITE, STATUS_MAPPED_ALIGNMENT, IGNORE);
 
     //View Size 
-    TestMapView(WriteSectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READWRITE, STATUS_SUCCESS, STATUS_SUCCESS);
+    TestMapView(WriteSectionHandle, NtCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READWRITE, STATUS_SUCCESS, STATUS_SUCCESS);
 
     ViewSize = -1;
-    TestMapView(WriteSectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READWRITE, STATUS_INVALID_PARAMETER_3, IGNORE);
+    TestMapView(WriteSectionHandle, NtCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READWRITE, STATUS_INVALID_PARAMETER_3, IGNORE);
     
     ViewSize = TestStringSize+1;
-    TestMapView(WriteSectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READWRITE, STATUS_INVALID_VIEW_SIZE, IGNORE);
-    TestMapView(WriteSectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, MEM_RESERVE, PAGE_READWRITE, STATUS_SUCCESS, STATUS_SUCCESS);
+    TestMapView(WriteSectionHandle, NtCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READWRITE, STATUS_INVALID_VIEW_SIZE, IGNORE);
+    TestMapView(WriteSectionHandle, NtCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, MEM_RESERVE, PAGE_READWRITE, STATUS_SUCCESS, STATUS_SUCCESS);
     
     ViewSize = TestStringSize;
-    TestMapView(WriteSectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READWRITE, STATUS_SUCCESS, STATUS_SUCCESS);
+    TestMapView(WriteSectionHandle, NtCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READWRITE, STATUS_SUCCESS, STATUS_SUCCESS);
 
     ViewSize = TestStringSize-1;
-    TestMapView(WriteSectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READWRITE, STATUS_SUCCESS, STATUS_SUCCESS);
+    TestMapView(WriteSectionHandle, NtCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READWRITE, STATUS_SUCCESS, STATUS_SUCCESS);
 
 
     //allocation type
-    TestMapView(WriteSectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, MEM_RESERVE, PAGE_READWRITE, STATUS_SUCCESS, STATUS_SUCCESS);
-    TestMapView(PageFileSectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, MEM_RESERVE, PAGE_READWRITE, STATUS_INVALID_PARAMETER_9, STATUS_SUCCESS);
-    TestMapView(WriteSectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, (MEM_RESERVE | MEM_COMMIT), PAGE_READWRITE, STATUS_INVALID_PARAMETER_9, IGNORE);
-    TestMapView(WriteSectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, (MEM_LARGE_PAGES | MEM_RESERVE), PAGE_READWRITE, STATUS_SUCCESS, STATUS_SUCCESS);
+    TestMapView(WriteSectionHandle, NtCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, MEM_RESERVE, PAGE_READWRITE, STATUS_SUCCESS, STATUS_SUCCESS);
+    TestMapView(PageFileSectionHandle, NtCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, MEM_RESERVE, PAGE_READWRITE, STATUS_INVALID_PARAMETER_9, STATUS_SUCCESS);
+    TestMapView(WriteSectionHandle, NtCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, (MEM_RESERVE | MEM_COMMIT), PAGE_READWRITE, STATUS_INVALID_PARAMETER_9, IGNORE);
+    TestMapView(WriteSectionHandle, NtCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, (MEM_LARGE_PAGES | MEM_RESERVE), PAGE_READWRITE, STATUS_SUCCESS, STATUS_SUCCESS);
     
     //win32protect
-    TestMapView(WriteSectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READONLY, STATUS_SUCCESS, STATUS_SUCCESS);
-    TestMapView(WriteSectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_NOACCESS, STATUS_SUCCESS, STATUS_SUCCESS);
-    TestMapView(WriteSectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_EXECUTE_WRITECOPY, STATUS_SECTION_PROTECTION, IGNORE);
-    TestMapView(ReadOnlySection, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READWRITE, STATUS_SECTION_PROTECTION, IGNORE);
-    TestMapView(ReadOnlySection, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_WRITECOPY, STATUS_SUCCESS, STATUS_SUCCESS);
-    TestMapView(ReadOnlySection, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_EXECUTE_READ, STATUS_SECTION_PROTECTION, IGNORE);
-    TestMapView(ReadOnlySection, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_EXECUTE, STATUS_SECTION_PROTECTION, IGNORE);
-    TestMapView(ReadOnlySection, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READONLY, STATUS_SUCCESS, STATUS_SUCCESS);
-    TestMapView(ReadOnlySection, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_NOACCESS, STATUS_SUCCESS, STATUS_SUCCESS);
-    TestMapView(ReadOnlySection, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, (PAGE_READWRITE | PAGE_READONLY), STATUS_INVALID_PAGE_PROTECTION, IGNORE);
-    TestMapView(ReadOnlySection, ZwCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, MEM_RESERVE, PAGE_READONLY, STATUS_SECTION_PROTECTION, IGNORE);
+    TestMapView(WriteSectionHandle, NtCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READONLY, STATUS_SUCCESS, STATUS_SUCCESS);
+    TestMapView(WriteSectionHandle, NtCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_NOACCESS, STATUS_SUCCESS, STATUS_SUCCESS);
+    TestMapView(WriteSectionHandle, NtCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_EXECUTE_WRITECOPY, STATUS_SECTION_PROTECTION, IGNORE);
+    TestMapView(ReadOnlySection, NtCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READWRITE, STATUS_SECTION_PROTECTION, IGNORE);
+    TestMapView(ReadOnlySection, NtCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_WRITECOPY, STATUS_SUCCESS, STATUS_SUCCESS);
+    TestMapView(ReadOnlySection, NtCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_EXECUTE_READ, STATUS_SECTION_PROTECTION, IGNORE);
+    TestMapView(ReadOnlySection, NtCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_EXECUTE, STATUS_SECTION_PROTECTION, IGNORE);
+    TestMapView(ReadOnlySection, NtCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READONLY, STATUS_SUCCESS, STATUS_SUCCESS);
+    TestMapView(ReadOnlySection, NtCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_NOACCESS, STATUS_SUCCESS, STATUS_SUCCESS);
+    TestMapView(ReadOnlySection, NtCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, 0, (PAGE_READWRITE | PAGE_READONLY), STATUS_INVALID_PAGE_PROTECTION, IGNORE);
+    TestMapView(ReadOnlySection, NtCurrentProcess(), &BaseAddress, 0, 0, NULL, &ViewSize, ViewUnmap, MEM_RESERVE, PAGE_READONLY, STATUS_SECTION_PROTECTION, IGNORE);
 
     ZwClose(WriteSectionHandle); 
     ZwClose(PageFileSectionHandle);
@@ -282,9 +280,7 @@ CompareFileContents(HANDLE FileHandle, SIZE_T BufferLength, PVOID Buffer)
     ByteOffset.QuadPart = 0;
 
     FileContent = ExAllocatePoolWithTag(PagedPool, BufferLength, 'Test');
-    ok(FileContent != NULL, "Error allocating memory for FileContent\n");
-
-    if (FileContent != NULL) 
+    if (!skip((FileContent != NULL), "Error allocating memory for FileContent\n"))
     {
         Status = ZwReadFile(FileHandle, NULL, NULL, NULL, &IoStatusBlock, FileContent, BufferLength, &ByteOffset, NULL);
         ok_eq_hex(Status, STATUS_SUCCESS);
@@ -323,7 +319,7 @@ SystemProcessWorker(PVOID StartContext)
     if (!skip(NT_SUCCESS(Status), "Error acquiring handle to section. Error = %p\n", Status))
     {
         CheckObject(SectionHandle, 4, 2);
-        Status = ZwMapViewOfSection(SectionHandle, ZwCurrentProcess(), &BaseAddress, 0, TestStringSize, &SectionOffset, &ViewSize, ViewUnmap, 0, PAGE_READWRITE);
+        Status = ZwMapViewOfSection(SectionHandle, NtCurrentProcess(), &BaseAddress, 0, TestStringSize, &SectionOffset, &ViewSize, ViewUnmap, 0, PAGE_READWRITE);
 
         //make sure ZwMapViewofSection doesn't touch the section ref counts.
         CheckObject(SectionHandle, 4, 2);
@@ -334,7 +330,7 @@ SystemProcessWorker(PVOID StartContext)
             ok_eq_size(Match, TestStringSize);
 
             RtlCopyMemory(BaseAddress, NEW_CONTENT, NEW_CONTENT_LEN);
-            ZwUnmapViewOfSection(ZwCurrentProcess(), BaseAddress);
+            ZwUnmapViewOfSection(NtCurrentProcess(), BaseAddress);
 
             //make sure ZwMapViewofSection doesn't touch the section ref counts.
             CheckObject(SectionHandle, 4, 2);
@@ -371,7 +367,7 @@ BehaviorChecks(HANDLE FileHandleReadOnly, HANDLE FileHandleWriteOnly)
     ok(NT_SUCCESS(Status), "Error creating write section from file. Error = %p\n", Status); 
 
     //check for section reading/writing by comparing section content to a well-known value.
-    Status = ZwMapViewOfSection(WriteSectionHandle, ZwCurrentProcess() ,&BaseAddress, 0, 0, &SectionOffset, &ViewSize, ViewUnmap, 0, PAGE_READWRITE);
+    Status = ZwMapViewOfSection(WriteSectionHandle, NtCurrentProcess() ,&BaseAddress, 0, 0, &SectionOffset, &ViewSize, ViewUnmap, 0, PAGE_READWRITE);
     CheckObject(WriteSectionHandle, 3, 1);
     if (!skip(NT_SUCCESS(Status), "Error mapping view with READ/WRITE priv. Error = %p\n", Status))
     {
@@ -414,7 +410,7 @@ BehaviorChecks(HANDLE FileHandleReadOnly, HANDLE FileHandleWriteOnly)
             }
         }
 
-        ZwUnmapViewOfSection(ZwCurrentProcess(), BaseAddress);
+        ZwUnmapViewOfSection(NtCurrentProcess(), BaseAddress);
 
     }
 
@@ -422,7 +418,7 @@ BehaviorChecks(HANDLE FileHandleReadOnly, HANDLE FileHandleWriteOnly)
     BaseAddress = NULL;
     ViewSize = 0;
     SectionOffset.QuadPart = 0;
-    Status = ZwMapViewOfSection(WriteSectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 0, &SectionOffset, &ViewSize, ViewUnmap, 0, PAGE_READONLY);
+    Status = ZwMapViewOfSection(WriteSectionHandle, NtCurrentProcess(), &BaseAddress, 0, 0, &SectionOffset, &ViewSize, ViewUnmap, 0, PAGE_READONLY);
     if (!skip(NT_SUCCESS(Status), "Error mapping view with READ priv. Error = %p\n", Status))
     {
        NTSTATUS ExceptionStatus;
@@ -434,14 +430,14 @@ BehaviorChecks(HANDLE FileHandleReadOnly, HANDLE FileHandleWriteOnly)
             RtlCopyMemory(BaseAddress, NEW_CONTENT, NEW_CONTENT_LEN);
         KmtEndSeh(STATUS_ACCESS_VIOLATION);
 
-        ZwUnmapViewOfSection(ZwCurrentProcess(), BaseAddress);
+        ZwUnmapViewOfSection(NtCurrentProcess(), BaseAddress);
     }
 
     //try to access forbidden memory 
     BaseAddress = NULL;
     ViewSize = 0;
     SectionOffset.QuadPart = 0;
-    Status = ZwMapViewOfSection(WriteSectionHandle, ZwCurrentProcess(), &BaseAddress, 0, 0, &SectionOffset, &ViewSize, ViewUnmap, 0, PAGE_NOACCESS);
+    Status = ZwMapViewOfSection(WriteSectionHandle, NtCurrentProcess(), &BaseAddress, 0, 0, &SectionOffset, &ViewSize, ViewUnmap, 0, PAGE_NOACCESS);
     if (!skip(NT_SUCCESS(Status), "Error mapping view with PAGE_NOACCESS priv. Error = %p\n", Status))
     {
         NTSTATUS ExceptionStatus;
@@ -450,7 +446,7 @@ BehaviorChecks(HANDLE FileHandleReadOnly, HANDLE FileHandleWriteOnly)
         RtlCompareMemory(BaseAddress, TestString, TestStringSize);
         KmtEndSeh(STATUS_ACCESS_VIOLATION);
 
-        ZwUnmapViewOfSection(ZwCurrentProcess(), BaseAddress);
+        ZwUnmapViewOfSection(NtCurrentProcess(), BaseAddress);
     }
  
     ZwClose(WriteSectionHandle);
@@ -462,7 +458,7 @@ BehaviorChecks(HANDLE FileHandleReadOnly, HANDLE FileHandleWriteOnly)
     Status = ZwCreateSection(&WriteSectionHandle, SECTION_ALL_ACCESS, &ObjectAttributes, &MaximumSize, PAGE_READWRITE, SEC_RESERVE, FileHandleWriteOnly);
     if (!skip(NT_SUCCESS(Status), "Error creating page file section. Error = %p\n", Status))
     {
-        Status = ZwMapViewOfSection(WriteSectionHandle, ZwCurrentProcess(), &BaseAddress, 0, TestStringSize, &SectionOffset, &ViewSize, ViewUnmap, 0, PAGE_READWRITE);
+        Status = ZwMapViewOfSection(WriteSectionHandle, NtCurrentProcess(), &BaseAddress, 0, TestStringSize, &SectionOffset, &ViewSize, ViewUnmap, MEM_RESERVE, PAGE_READWRITE);
         if (!skip(NT_SUCCESS(Status), "Error mapping page file view. Error = %p\n", Status)) 
         {
             //check also the SEC_COMMIT flag 
@@ -472,7 +468,7 @@ BehaviorChecks(HANDLE FileHandleReadOnly, HANDLE FileHandleWriteOnly)
             *  It fails also on windows.
             */
             Test_NtQueryVirtualMemory(BaseAddress, PAGE_SIZE, MEM_RESERVE, PAGE_READWRITE);
-            ZwUnmapViewOfSection(ZwCurrentProcess(), BaseAddress);
+            ZwUnmapViewOfSection(NtCurrentProcess(), BaseAddress);
         }
 
         ZwClose(WriteSectionHandle);
@@ -489,7 +485,6 @@ PageFileBehaviorChecks()
     LARGE_INTEGER SectionOffset;
     HANDLE PageFileSectionHandle;
     PVOID BaseAddress; 
-    SIZE_T CommitSize;
     SIZE_T ViewSize;
     SIZE_T Match;
     PVOID ThreadObject;
@@ -500,7 +495,6 @@ PageFileBehaviorChecks()
     SectionOffset.QuadPart = 0;
     PageFileSectionHandle = INVALID_HANDLE_VALUE;
     BaseAddress = NULL;
-    CommitSize = TestStringSize;
     ViewSize = TestStringSize;
     InitializeObjectAttributes(&ObjectAttributes, &SharedSectionName, (OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE), NULL, NULL);
 
@@ -509,7 +503,7 @@ PageFileBehaviorChecks()
     if (!skip(NT_SUCCESS(Status), "Error creating page file section. Error = %p\n", Status))
     {
         CheckObject(PageFileSectionHandle, 3, 1);
-        Status = ZwMapViewOfSection(PageFileSectionHandle, ZwCurrentProcess(), &BaseAddress, 0, TestStringSize, &SectionOffset, &ViewSize, ViewUnmap, 0, PAGE_READWRITE);
+        Status = ZwMapViewOfSection(PageFileSectionHandle, NtCurrentProcess(), &BaseAddress, 0, TestStringSize, &SectionOffset, &ViewSize, ViewUnmap, 0, PAGE_READWRITE);
         if (!skip(NT_SUCCESS(Status), "Error mapping page file view. Error = %p\n", Status))
         {
             HANDLE SysThreadHandle;
@@ -540,7 +534,7 @@ PageFileBehaviorChecks()
                      ok_eq_size(Match, NEW_CONTENT_LEN);
                  }
             }
-            ZwUnmapViewOfSection(ZwCurrentProcess(), BaseAddress);
+            ZwUnmapViewOfSection(NtCurrentProcess(), BaseAddress);
         }
         ZwClose(PageFileSectionHandle);
     }

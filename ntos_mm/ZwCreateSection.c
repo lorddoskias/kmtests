@@ -255,7 +255,6 @@ KmtInitTestFiles(PHANDLE ReadOnlyFile, PHANDLE WriteOnlyFile, PHANDLE Executable
     NTSTATUS Status;
     LARGE_INTEGER FileOffset;
     IO_STATUS_BLOCK IoStatusBlock;
-    UCHAR FileData = 0;
 
     //INIT THE READ-ONLY FILE
     Status = ZwCreateFile(ReadOnlyFile, ( GENERIC_READ | GENERIC_EXECUTE ), &NtdllObject, &IoStatusBlock, NULL, FILE_ATTRIBUTE_NORMAL, FILE_SHARE_READ, FILE_OPEN, FILE_NON_DIRECTORY_FILE, NULL, 0);
@@ -462,7 +461,7 @@ BasicBehaviorChecks(HANDLE FileHandle)
     Length.QuadPart = TestStringSize;
 
     //mimic lack of section support for a particular file as well.
-    Status = ObReferenceObjectByHandle(FileHandle, STANDARD_RIGHTS_ALL, IoFileObjectType, KernelMode, &FileObject, NULL);
+    Status = ObReferenceObjectByHandle(FileHandle, STANDARD_RIGHTS_ALL, IoFileObjectType, KernelMode, (PVOID *)&FileObject, NULL);
     if (!skip(NT_SUCCESS(Status), "Cannot reference object by handle\n"))  
     {    
 
@@ -473,7 +472,7 @@ BasicBehaviorChecks(HANDLE FileHandle)
         FileObject->SectionObjectPointer = Pointers;
         ObDereferenceObject(FileObject);
     }
-
+    
     Length.QuadPart = TestStringSize;
     CREATE_SECTION(Section, (SECTION_ALL_ACCESS), NULL, Length, PAGE_READONLY, SEC_COMMIT, FileHandle, STATUS_SUCCESS, NO_HANDLE_CLOSE);
     CheckObject(Section, 2, 1);
