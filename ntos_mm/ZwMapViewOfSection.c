@@ -467,7 +467,7 @@ BehaviorChecks(HANDLE FileHandleReadOnly, HANDLE FileHandleWriteOnly)
             *  should cause the allocated memory for the view to be reserved but in fact it is always committed.
             *  It fails also on windows.
             */
-            Test_NtQueryVirtualMemory(BaseAddress, PAGE_SIZE, MEM_RESERVE, PAGE_READWRITE);
+            Test_NtQueryVirtualMemory(BaseAddress, PAGE_SIZE, MEM_COMMIT, PAGE_READWRITE);
             ZwUnmapViewOfSection(NtCurrentProcess(), BaseAddress);
         }
 

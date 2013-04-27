@@ -14,10 +14,10 @@ extern const char TestString[];
 extern const SIZE_T TestStringSize;
 static UNICODE_STRING FileReadOnlyPath = RTL_CONSTANT_STRING(L"\\SystemRoot\\system32\\ntdll.dll");
 static UNICODE_STRING WritableFilePath = RTL_CONSTANT_STRING(L"\\SystemRoot\\kmtest-MmSection.txt");
-static UNICODE_STRING NtosImgPath = RTL_CONSTANT_STRING(L"\\SystemRoot\\system32\\calc.exe");
+static UNICODE_STRING CalcImgPath = RTL_CONSTANT_STRING(L"\\SystemRoot\\system32\\calc.exe");
 static OBJECT_ATTRIBUTES NtdllObject;
 static OBJECT_ATTRIBUTES KmtestFileObject;
-static OBJECT_ATTRIBUTES NtoskrnlFileObject;
+static OBJECT_ATTRIBUTES CalcFileObject;
 
 #define CREATE_SECTION(Handle, DesiredAccess, Attributes, Size, SectionPageProtection, AllocationAttributes, FileHandle,  RetStatus, CloseRetStatus)  do  \
 {                                                                                                                                                         \
@@ -262,7 +262,7 @@ KmtInitTestFiles(PHANDLE ReadOnlyFile, PHANDLE WriteOnlyFile, PHANDLE Executable
     ok(*ReadOnlyFile != NULL, "Couldn't acquire READONLY handle\n");
 
     //INIT THE EXECUTABLE FILE
-    Status = ZwCreateFile(ExecutableFile, GENERIC_EXECUTE, &NtoskrnlFileObject, &IoStatusBlock, NULL, FILE_ATTRIBUTE_NORMAL, FILE_SHARE_READ, FILE_OPEN, FILE_NON_DIRECTORY_FILE, NULL, 0);
+    Status = ZwCreateFile(ExecutableFile, GENERIC_EXECUTE, &CalcFileObject, &IoStatusBlock, NULL, FILE_ATTRIBUTE_NORMAL, FILE_SHARE_READ, FILE_OPEN, FILE_NON_DIRECTORY_FILE, NULL, 0);
     ok_eq_hex(Status, STATUS_SUCCESS);
     ok(*ExecutableFile != NULL, "Couldn't acquire EXECUTE handle\n");
 
@@ -429,15 +429,15 @@ SimpleErrorChecks(HANDLE FileHandleReadOnly, HANDLE FileHandleWriteOnly, HANDLE 
     if(!skip(NT_SUCCESS(Status), "Cannot query file information"))
     {
         //as big as file
-        MaximumSize = FileStandardInfo.AllocationSize;
+        MaximumSize = FileStandardInfo.EndOfFile;
         CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_EXECUTE_READ, SEC_IMAGE, FileHandleExecuteOnly, STATUS_SUCCESS, STATUS_SUCCESS);
 
         //less than file
-        MaximumSize.QuadPart = FileStandardInfo.AllocationSize.QuadPart - 2;
+        MaximumSize.QuadPart = FileStandardInfo.EndOfFile.QuadPart - 2;
         CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_EXECUTE_READ, SEC_IMAGE, FileHandleExecuteOnly, STATUS_SUCCESS, STATUS_SUCCESS);
 
         //larger than file
-        MaximumSize.QuadPart = FileStandardInfo.AllocationSize.QuadPart + 2;
+        MaximumSize.QuadPart = FileStandardInfo.EndOfFile.QuadPart + 2;
         CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_EXECUTE_READ, SEC_IMAGE, FileHandleExecuteOnly, STATUS_SUCCESS, STATUS_SUCCESS);
 
         //0
@@ -502,7 +502,7 @@ START_TEST(ZwCreateSection)
 
     InitializeObjectAttributes(&NtdllObject, &FileReadOnlyPath, (OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE), NULL, NULL);
     InitializeObjectAttributes(&KmtestFileObject, &WritableFilePath, (OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE), NULL, NULL);
-    InitializeObjectAttributes(&NtoskrnlFileObject, &NtosImgPath, (OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE), NULL, NULL);
+    InitializeObjectAttributes(&CalcFileObject, &CalcImgPath, (OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE), NULL, NULL);
 
     KmtInitTestFiles(&FileHandleReadOnly, &FileHandleWriteOnly, &FileHandleExecuteOnly);
 
